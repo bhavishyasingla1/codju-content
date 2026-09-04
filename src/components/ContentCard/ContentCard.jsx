@@ -1,9 +1,12 @@
 import TypeBadge from '../TypeBadge/TypeBadge';
 import StatusBadge from '../StatusBadge/StatusBadge';
 import { formatDate, truncate } from '../../utils/helpers';
+import { useAuth } from '../../context/AuthContext';
 import './ContentCard.css';
 
 export default function ContentCard({ item, onEdit, onStatusChange }) {
+  const { isAdmin, isViewer } = useAuth();
+
   // Try to find a thumbnail from the item assets or the designated thumbnail field
   const getThumbnail = () => {
     if (item.thumbnailAsset?.url) {
@@ -52,9 +55,22 @@ export default function ContentCard({ item, onEdit, onStatusChange }) {
 
       {/* Footer */}
       <div className="content-card__footer">
-        <StatusBadge status={item.status} onClick={(nextStatus) => onStatusChange(item.id, nextStatus)} size="small" />
+        <StatusBadge
+          status={item.status}
+          onClick={isAdmin ? () => {
+            const isWritten = (item.category || 'social') === 'written';
+            const order = isWritten
+              ? ['draft', 'ready', 'published']
+              : ['draft', 'pending', 'revision', 'ready', 'published'];
+            const currentIdx = order.indexOf(item.status);
+            const nextStatus = order[(currentIdx + 1) % order.length];
+            onStatusChange?.(item.id, nextStatus);
+          } : undefined}
+          disabled={!isAdmin}
+          size="small"
+        />
         <button className="content-card__edit-btn" onClick={onEdit} type="button">
-          Edit
+          {isViewer ? 'View' : 'Edit'}
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <polyline points="9 18 15 12 9 6" />
           </svg>

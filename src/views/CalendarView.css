@@ -35,12 +35,16 @@
   transition: background-color var(--transition-fast);
 }
 
-.calendar-grid__cell:not(.calendar-grid__cell--empty) {
+.calendar-grid__cell:not(.calendar-grid__cell--empty):not(.calendar-grid__cell--readonly) {
   cursor: pointer;
 }
 
-.calendar-grid__cell:not(.calendar-grid__cell--empty):hover {
+.calendar-grid__cell:not(.calendar-grid__cell--empty):not(.calendar-grid__cell--readonly):hover {
   background-color: var(--color-bg-hover);
+}
+
+.calendar-grid__cell--readonly {
+  cursor: default;
 }
 
 .calendar-grid__cell:nth-child(7n) {

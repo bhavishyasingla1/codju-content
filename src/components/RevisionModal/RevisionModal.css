@@ -318,12 +318,28 @@
   background: var(--color-primary-hover);
 }
 
-.revision-modal__btn--danger {
+.revision-modal__info-tip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  background: var(--color-primary-pale, #eef2ff);
+  border-radius: var(--radius-md);
+  color: var(--color-primary, #4f46e5);
+  font-size: var(--text-xs);
+  line-height: var(--leading-relaxed);
+}
+
+.revision-modal__info-tip strong {
+  font-weight: 600;
+}
+
+.revision-modal__btn--send {
   background: #D97706;
   color: #fff;
 }
 
-.revision-modal__btn--danger:hover:not(:disabled) {
+.revision-modal__btn--send:hover:not(:disabled) {
   background: #B45309;
 }
 

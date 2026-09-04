@@ -831,6 +831,23 @@ export default {
               break;
             }
 
+            case 'designer_month_ready': {
+              recipient = settings.adminEmail;
+              if (!recipient) {
+                return jsonResponse({
+                  error: 'Admin email is not configured. Please add the Admin Email in Settings.'
+                }, 400);
+              }
+              emailContent = buildDesignerMonthReadyEmail({
+                month: body.month,
+                year: body.year,
+                monthName: body.monthName || `Month ${body.month}`,
+                items: body.items || [],
+                appUrl
+              });
+              break;
+            }
+
             case 'test': {
               recipient = body.recipient || settings.adminEmail;
               if (!recipient) {
@@ -871,6 +888,7 @@ export default {
               apiKey,
               from: settings.senderEmail,
               to: recipient,
+              replyTo: settings.adminEmail || 'bhavishyasingla2005@gmail.com',
               subject: emailContent.subject,
               html: emailContent.html
             });
@@ -940,8 +958,20 @@ export default {
 };
 
 // ==========================================
+// ==========================================
 // NOTIFICATIONS & SETTINGS HELPERS
 // ==========================================
+
+function normalizeSenderEmail(senderEmail) {
+  if (!senderEmail || senderEmail.includes('onboarding@resend.dev') || senderEmail.includes('@gmail.com')) {
+    return 'Bhavishya <noreply@hibhavishya.in>';
+  }
+  // If user typed haibhavishya.in, map to the verified domain hibhavishya.in
+  if (senderEmail.includes('@haibhavishya.in')) {
+    return senderEmail.replace('@haibhavishya.in', '@hibhavishya.in');
+  }
+  return senderEmail;
+}
 
 async function getD1Settings(env) {
   try {
@@ -952,9 +982,9 @@ async function getD1Settings(env) {
     }
     return {
       adminEmail: map.admin_email || env.ADMIN_EMAIL || env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com',
-      designerEmail: map.designer_email || env.DESIGNER_EMAIL || '',
+      designerEmail: map.designer_email || env.DESIGNER_EMAIL || 'gurpreetcodju@gmail.com',
       resendApiKey: map.resend_api_key || env.RESEND_API_KEY || '',
-      senderEmail: map.sender_email || env.SENDER_EMAIL || 'Codju Content Calendar <onboarding@resend.dev>',
+      senderEmail: normalizeSenderEmail(map.sender_email || env.SENDER_EMAIL),
       dailyReminderEnabled: map.daily_reminder_enabled !== 'false',
       dailyReminderTime: map.daily_reminder_time || '12:00',
     };
@@ -962,9 +992,9 @@ async function getD1Settings(env) {
     console.error('Error reading settings from D1:', err);
     return {
       adminEmail: env.ADMIN_EMAIL || env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com',
-      designerEmail: env.DESIGNER_EMAIL || '',
+      designerEmail: env.DESIGNER_EMAIL || 'gurpreetcodju@gmail.com',
       resendApiKey: env.RESEND_API_KEY || '',
-      senderEmail: 'Codju Content Calendar <onboarding@resend.dev>',
+      senderEmail: 'Bhavishya <noreply@hibhavishya.in>',
       dailyReminderEnabled: true,
       dailyReminderTime: '12:00',
     };
@@ -1001,19 +1031,24 @@ async function logNotification(env, { type, recipient, subject, status, error = 
   }
 }
 
-async function sendEmailViaResend({ apiKey, from, to, subject, html }) {
+async function sendEmailViaResend({ apiKey, from, to, replyTo, subject, html }) {
+  const normalizedFrom = normalizeSenderEmail(from);
+  const payload = {
+    from: normalizedFrom,
+    to: Array.isArray(to) ? to : [to],
+    subject,
+    html
+  };
+  if (replyTo) {
+    payload.reply_to = replyTo;
+  }
   const response = await fetch('https://api.resend.com/emails', {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${apiKey.trim()}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify({
-      from,
-      to: Array.isArray(to) ? to : [to],
-      subject,
-      html
-    })
+    body: JSON.stringify(payload)
   });
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -1040,10 +1075,20 @@ async function runDailyUploadCheck(env, appUrl, forceSend = false) {
     'SELECT * FROM content WHERE date = ? ORDER BY id ASC'
   ).bind(todayStr).all();
 
-  const items = (results || []).map(mapRowToFrontend);
+  const allItems = (results || []).map(mapRowToFrontend);
 
-  if (items.length === 0 && !forceSend) {
-    return { skipped: true, reason: `No content pieces scheduled for today (${todayStr})` };
+  // User requirement:
+  // "send emails to admin on date where particular written content is to be added. if i clicked already published it means no email is needed."
+  // Only alert for items that need to be published (status !== 'published')
+  const pendingItems = allItems.filter(item => item.status !== 'published');
+
+  if (pendingItems.length === 0 && !forceSend) {
+    return {
+      skipped: true,
+      reason: allItems.length > 0
+        ? `All content pieces scheduled for today (${todayStr}) are already published. No email needed.`
+        : `No content pieces scheduled for today (${todayStr})`
+    };
   }
 
   const recipient = settings.adminEmail;
@@ -1051,8 +1096,12 @@ async function runDailyUploadCheck(env, appUrl, forceSend = false) {
     return { error: 'No admin email configured for daily upload reminder' };
   }
 
+  const itemsToSend = pendingItems.length > 0
+    ? pendingItems
+    : (allItems.length > 0 ? allItems : [{ id: 'test_1', name: 'Test Content Piece', platform: 'editorial', type: 'article', status: 'ready', category: 'written' }]);
+
   const emailContent = buildDailyUploadEmail({
-    items: items.length > 0 ? items : [{ name: 'Test Content Piece', platform: 'instagram', type: 'carousel', status: 'ready' }],
+    items: itemsToSend,
     date: todayStr,
     appUrl
   });
@@ -1064,15 +1113,15 @@ async function runDailyUploadCheck(env, appUrl, forceSend = false) {
       recipient,
       subject: emailContent.subject,
       status: 'simulated',
-      metadata: { itemCount: items.length, todayStr }
+      metadata: { itemCount: itemsToSend.length, todayStr }
     });
     return {
       success: true,
       simulated: true,
-      itemCount: items.length,
+      itemCount: itemsToSend.length,
       today: todayStr,
       recipient,
-      message: `Daily reminder simulated for ${items.length} items. Add Resend API key for inbox delivery.`
+      message: `Daily reminder simulated for ${itemsToSend.length} items. Add Resend API key for inbox delivery.`
     };
   }
 
@@ -1081,6 +1130,7 @@ async function runDailyUploadCheck(env, appUrl, forceSend = false) {
       apiKey,
       from: settings.senderEmail,
       to: recipient,
+      replyTo: settings.adminEmail || 'bhavishyasingla2005@gmail.com',
       subject: emailContent.subject,
       html: emailContent.html
     });
@@ -1090,12 +1140,12 @@ async function runDailyUploadCheck(env, appUrl, forceSend = false) {
       recipient,
       subject: emailContent.subject,
       status: 'sent',
-      metadata: { itemCount: items.length, todayStr, resendId: resendRes.id }
+      metadata: { itemCount: itemsToSend.length, todayStr, resendId: resendRes.id }
     });
 
     return {
       success: true,
-      itemCount: items.length,
+      itemCount: itemsToSend.length,
       today: todayStr,
       recipient,
       message: `Daily upload reminder sent to ${recipient}!`
@@ -1108,7 +1158,7 @@ async function runDailyUploadCheck(env, appUrl, forceSend = false) {
       subject: emailContent.subject,
       status: 'failed',
       error: err.message,
-      metadata: { itemCount: items.length, todayStr }
+      metadata: { itemCount: itemsToSend.length, todayStr }
     });
     return { error: err.message };
   }
@@ -1118,7 +1168,24 @@ async function runDailyUploadCheck(env, appUrl, forceSend = false) {
 // HTML EMAIL TEMPLATE GENERATORS
 // ==========================================
 
-function getEmailShell(title, badgeText, badgeColor, contentHtml, ctaText, ctaUrl) {
+function getItemDeepLink(appUrl, item) {
+  if (!item) return appUrl || '#';
+  const base = (appUrl || '').replace(/\/+$/, '');
+  const category = item.category || 'social';
+  const idParam = item.id ? `item=${encodeURIComponent(item.id)}` : '';
+  const catParam = `category=${category}`;
+  let dateParams = '';
+  if (item.date && item.date.includes('-')) {
+    const parts = item.date.split('-');
+    if (parts.length >= 2) {
+      dateParams = `&year=${parts[0]}&month=${parseInt(parts[1], 10)}`;
+    }
+  }
+  const query = [idParam, catParam].filter(Boolean).join('&') + dateParams;
+  return `${base}/?${query}`;
+}
+
+function getEmailShell(title, categoryLabel, contentHtml, ctaText, ctaUrl) {
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -1126,30 +1193,23 @@ function getEmailShell(title, badgeText, badgeColor, contentHtml, ctaText, ctaUr
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${title}</title>
 </head>
-<body style="margin: 0; padding: 0; background-color: #f1f5f9; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #1e293b; line-height: 1.6;">
-  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f1f5f9; padding: 32px 16px;">
+<body style="margin: 0; padding: 0; background-color: #f9fafb; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; color: #111827; line-height: 1.55;">
+  <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f9fafb; padding: 36px 16px;">
     <tr>
       <td align="center">
-        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 600px; background-color: #ffffff; border-radius: 16px; overflow: hidden; box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06); border: 1px solid #e2e8f0;">
-          <!-- Header Banner -->
+        <table width="100%" border="0" cellspacing="0" cellpadding="0" style="max-width: 560px; background-color: #ffffff; border-radius: 8px; border: 1px solid #e5e7eb; overflow: hidden; text-align: left;">
+          <!-- Top subtle app bar -->
           <tr>
-            <td style="background-color: #4f46e5; padding: 28px 32px; text-align: left;">
+            <td style="padding: 18px 26px; border-bottom: 1px solid #f3f4f6; background-color: #ffffff;">
               <table width="100%" border="0" cellspacing="0" cellpadding="0">
                 <tr>
-                  <td>
-                    <span style="font-size: 20px; font-weight: 800; color: #ffffff; letter-spacing: -0.5px;">Codju</span>
-                    <span style="font-size: 13px; font-weight: 500; color: #c7d2fe; margin-left: 8px; background: rgba(255,255,255,0.15); padding: 3px 8px; border-radius: 6px;">Content Calendar</span>
+                  <td style="font-size: 14px; font-weight: 700; color: #111827; letter-spacing: -0.2px;">
+                    Codju Content Calendar
                   </td>
-                </tr>
-                <tr>
-                  <td style="padding-top: 14px;">
-                    <div style="display: inline-block; background-color: ${badgeColor}; color: #ffffff; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; padding: 4px 10px; border-radius: 20px; margin-bottom: 8px;">
-                      ${badgeText}
-                    </div>
-                    <h1 style="margin: 0; font-size: 21px; font-weight: 700; color: #ffffff; line-height: 1.3;">
-                      ${title}
-                    </h1>
-                  </td>
+                  ${categoryLabel ? `
+                  <td align="right" style="font-size: 12px; font-weight: 500; color: #6b7280;">
+                    ${categoryLabel}
+                  </td>` : ''}
                 </tr>
               </table>
             </td>
@@ -1157,23 +1217,26 @@ function getEmailShell(title, badgeText, badgeColor, contentHtml, ctaText, ctaUr
 
           <!-- Main Content -->
           <tr>
-            <td style="padding: 28px 32px 24px 32px;">
+            <td style="padding: 26px 26px 22px 26px;">
+              <h1 style="margin: 0 0 18px 0; font-size: 19px; font-weight: 700; color: #111827; line-height: 1.35; letter-spacing: -0.3px;">
+                ${title}
+              </h1>
+
               ${contentHtml}
 
               ${ctaText && ctaUrl ? `
-              <div style="margin-top: 28px; padding-top: 22px; border-top: 1px solid #f1f5f9; text-align: center;">
-                <a href="${ctaUrl}" style="display: inline-block; background-color: #4f46e5; color: #ffffff; text-decoration: none; font-size: 15px; font-weight: 600; padding: 12px 28px; border-radius: 8px; box-shadow: 0 2px 6px rgba(79, 70, 229, 0.25);">
+              <div style="margin-top: 24px; padding-top: 18px; border-top: 1px solid #f3f4f6;">
+                <a href="${ctaUrl}" style="display: inline-block; background-color: #18181b; color: #ffffff; text-decoration: none; font-size: 13px; font-weight: 600; padding: 10px 18px; border-radius: 6px;">
                   ${ctaText} &rarr;
                 </a>
               </div>` : ''}
             </td>
           </tr>
 
-          <!-- Footer -->
+          <!-- Clean subtle footer -->
           <tr>
-            <td style="background-color: #f8fafc; padding: 18px 32px; border-top: 1px solid #e2e8f0; text-align: center; font-size: 12px; color: #64748b;">
-              <p style="margin: 0 0 4px 0;">Codju Content Calendar &bull; Automated Collaboration Notification</p>
-              <p style="margin: 0;">Sent automatically from <a href="${ctaUrl || '#'}" style="color: #6366f1; text-decoration: none;">Codju Dashboard</a></p>
+            <td style="padding: 14px 26px; background-color: #fafafa; border-top: 1px solid #f3f4f6; font-size: 12px; color: #6b7280;">
+              Codju Content Calendar &bull; <a href="${ctaUrl || appUrl || '#'}" style="color: #4b5563; text-decoration: underline;">Open calendar dashboard</a>
             </td>
           </tr>
         </table>
@@ -1185,20 +1248,19 @@ function getEmailShell(title, badgeText, badgeColor, contentHtml, ctaText, ctaUr
 }
 
 function buildChangesRequestedEmail({ contentItem, feedback, feedbackAssets = [], appUrl }) {
-  const title = `Changes Requested: "${contentItem.name || 'Content Piece'}"`;
-  const badgeText = `Design Revision Needed`;
-  const badgeColor = '#ea580c';
-  const itemUrl = `${appUrl}/#row-${contentItem.id}`;
+  const title = `Changes requested: "${contentItem.name || 'Content Piece'}"`;
+  const categoryLabel = `Revision Needed`;
+  const itemUrl = getItemDeepLink(appUrl, contentItem);
 
   let refHtml = '';
   if (feedbackAssets && feedbackAssets.length > 0) {
     refHtml = `
-      <div style="margin-top: 18px;">
-        <p style="font-size: 12px; font-weight: 700; color: #475569; margin: 0 0 8px 0; text-transform: uppercase;">Reference Images / Screenshots:</p>
+      <div style="margin-top: 16px;">
+        <p style="font-size: 12px; font-weight: 600; color: #475569; margin: 0 0 8px 0; text-transform: uppercase; letter-spacing: 0.3px;">Reference Files:</p>
         <div style="display: flex; gap: 8px; flex-wrap: wrap;">
           ${feedbackAssets.map((a, i) => `
-            <a href="${a.url && a.url.startsWith('http') ? a.url : appUrl + (a.url || '')}" target="_blank" style="display: inline-block; text-decoration: none; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px 12px; background: #ffffff; font-size: 12px; color: #4f46e5; font-weight: 600;">
-              🖼️ Reference ${i + 1} (${a.name || 'View Image'})
+            <a href="${a.url && a.url.startsWith('http') ? a.url : appUrl + (a.url || '')}" target="_blank" style="display: inline-block; text-decoration: none; border: 1px solid #cbd5e1; border-radius: 5px; padding: 5px 10px; background: #ffffff; font-size: 12px; color: #0284c7; font-weight: 500;">
+              Reference ${i + 1} (${a.name || 'View file'}) &rarr;
             </a>
           `).join('')}
         </div>
@@ -1207,142 +1269,261 @@ function buildChangesRequestedEmail({ contentItem, feedback, feedbackAssets = []
   }
 
   const contentHtml = `
-    <p style="font-size: 15px; margin: 0 0 16px 0; color: #334155;">
-      Hello <strong>Designer</strong>, the Admin has reviewed your submission for <strong>"${contentItem.name}"</strong> and requested revisions before it can be approved.
+    <p style="font-size: 14px; margin: 0 0 16px 0; color: #374151;">
+      Hello Designer, revisions have been requested for <a href="${itemUrl}" style="color: #4f46e5; text-decoration: underline; font-weight: 600;">"${contentItem.name}"</a> before it can be approved.
     </p>
 
     <!-- Metadata Card -->
-    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border-radius: 10px; padding: 12px 16px; margin-bottom: 18px; border: 1px solid #e2e8f0; font-size: 14px;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f9fafb; border-radius: 6px; padding: 12px 14px; margin-bottom: 16px; border: 1px solid #e5e7eb; font-size: 13px;">
       <tr>
-        <td style="padding: 4px 0; color: #64748b; width: 110px;">📅 Scheduled:</td>
-        <td style="padding: 4px 0; font-weight: 600; color: #0f172a;">${contentItem.date || 'TBD'}</td>
+        <td style="padding: 4px 0; color: #6b7280; width: 110px;">Scheduled:</td>
+        <td style="padding: 4px 0; font-weight: 600; color: #111827;">${contentItem.date || 'TBD'}</td>
       </tr>
       <tr>
-        <td style="padding: 4px 0; color: #64748b;">📱 Platform:</td>
-        <td style="padding: 4px 0; font-weight: 600; color: #0f172a; text-transform: capitalize;">${contentItem.platform || 'Social Media'}</td>
+        <td style="padding: 4px 0; color: #6b7280;">Platform:</td>
+        <td style="padding: 4px 0; font-weight: 600; color: #111827; text-transform: capitalize;">${contentItem.platform || 'Social Media'}</td>
       </tr>
       <tr>
-        <td style="padding: 4px 0; color: #64748b;">🎨 Format:</td>
-        <td style="padding: 4px 0; font-weight: 600; color: #0f172a; text-transform: capitalize;">${contentItem.type || 'Static'}</td>
+        <td style="padding: 4px 0; color: #6b7280;">Format:</td>
+        <td style="padding: 4px 0; font-weight: 600; color: #111827; text-transform: capitalize;">${contentItem.type || 'Static'}</td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 0; color: #6b7280;">Direct Link:</td>
+        <td style="padding: 4px 0;"><a href="${itemUrl}" style="color: #4f46e5; text-decoration: underline; font-size: 12px;">Open item directly &rarr;</a></td>
       </tr>
     </table>
 
     <!-- Feedback Box -->
-    <div style="background-color: #fff7ed; border-left: 4px solid #ea580c; border-radius: 6px; padding: 16px; margin: 16px 0;">
-      <p style="font-size: 11px; font-weight: 700; color: #9a3412; text-transform: uppercase; margin: 0 0 6px 0;">Required Changes / Admin Instructions:</p>
-      <p style="font-size: 15px; color: #7c2d12; margin: 0; white-space: pre-wrap; font-style: italic;">
-        "${feedback || 'Please update the creative assets according to the brief.'}"
+    <div style="background-color: #fefce8; border-left: 3px solid #eab308; border-radius: 4px; padding: 14px; margin: 14px 0;">
+      <p style="font-size: 12px; font-weight: 700; color: #854d0e; text-transform: uppercase; margin: 0 0 4px 0; letter-spacing: 0.3px;">Notes / Changes Requested:</p>
+      <p style="font-size: 14px; color: #713f12; margin: 0; white-space: pre-wrap;">
+        ${feedback || 'Please update the creative assets according to the brief.'}
       </p>
     </div>
 
     ${refHtml}
 
-    <p style="font-size: 14px; color: #64748b; margin-top: 18px;">
-      Once you have made the updates, upload the new files and click <strong>"Resubmit for Review ✓"</strong> in the calendar.
+    <p style="font-size: 13px; color: #6b7280; margin-top: 16px;">
+      Once updated, upload the new files in the calendar and click <strong>"Resubmit for Review"</strong>.
     </p>
   `;
 
   return {
-    subject: `⚠️ Changes Requested: "${contentItem.name}" (${contentItem.date})`,
-    html: getEmailShell(title, badgeText, badgeColor, contentHtml, 'Open Calendar & View Instructions', itemUrl)
+    subject: `Changes requested: "${contentItem.name}" (${contentItem.date})`,
+    html: getEmailShell(title, categoryLabel, contentHtml, 'View in Content Calendar', itemUrl)
   };
 }
 
 function buildApprovalNeededEmail({ contentItem, appUrl, resubmitted = false }) {
   const title = resubmitted
-    ? `Resubmitted for Review: "${contentItem.name || 'Content Piece'}"`
-    : `Approval Needed: "${contentItem.name || 'Content Piece'}"`;
-  const badgeText = resubmitted ? `Creative Resubmitted` : `Ready for Approval`;
-  const badgeColor = '#0284c7';
-  const itemUrl = `${appUrl}/#row-${contentItem.id}`;
+    ? `Resubmitted for review: "${contentItem.name || 'Content Piece'}"`
+    : `Creative submitted: "${contentItem.name || 'Content Piece'}"`;
+  const categoryLabel = resubmitted ? `Resubmission` : `Approval Needed`;
+  const itemUrl = getItemDeepLink(appUrl, contentItem);
 
   const fileCount = (contentItem.assets?.length || 0) + (contentItem.pdfAsset ? 1 : 0);
 
   const contentHtml = `
-    <p style="font-size: 15px; margin: 0 0 16px 0; color: #334155;">
-      Hello <strong>Admin</strong>, the Designer has ${resubmitted ? 'updated and resubmitted' : 'uploaded creative files for'} <strong>"${contentItem.name}"</strong> and requested your review and approval.
+    <p style="font-size: 14px; margin: 0 0 16px 0; color: #374151;">
+      Hello Admin, the Designer has ${resubmitted ? 'updated and resubmitted' : 'uploaded creative files for'} <a href="${itemUrl}" style="color: #4f46e5; text-decoration: underline; font-weight: 600;">"${contentItem.name}"</a> for your review.
     </p>
 
-    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f8fafc; border-radius: 10px; padding: 12px 16px; margin-bottom: 18px; border: 1px solid #e2e8f0; font-size: 14px;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="background-color: #f9fafb; border-radius: 6px; padding: 12px 14px; margin-bottom: 16px; border: 1px solid #e5e7eb; font-size: 13px;">
       <tr>
-        <td style="padding: 4px 0; color: #64748b; width: 120px;">📅 Date:</td>
-        <td style="padding: 4px 0; font-weight: 600; color: #0f172a;">${contentItem.date || 'TBD'}</td>
+        <td style="padding: 4px 0; color: #6b7280; width: 110px;">Scheduled:</td>
+        <td style="padding: 4px 0; font-weight: 600; color: #111827;">${contentItem.date || 'TBD'}</td>
       </tr>
       <tr>
-        <td style="padding: 4px 0; color: #64748b;">📱 Platform:</td>
-        <td style="padding: 4px 0; font-weight: 600; color: #0f172a; text-transform: capitalize;">${contentItem.platform || 'Social'}</td>
+        <td style="padding: 4px 0; color: #6b7280;">Platform:</td>
+        <td style="padding: 4px 0; font-weight: 600; color: #111827; text-transform: capitalize;">${contentItem.platform || 'Social'}</td>
       </tr>
       <tr>
-        <td style="padding: 4px 0; color: #64748b;">🎨 Format:</td>
-        <td style="padding: 4px 0; font-weight: 600; color: #0f172a; text-transform: capitalize;">${contentItem.type || 'Static'}</td>
+        <td style="padding: 4px 0; color: #6b7280;">Format:</td>
+        <td style="padding: 4px 0; font-weight: 600; color: #111827; text-transform: capitalize;">${contentItem.type || 'Static'}</td>
       </tr>
       <tr>
-        <td style="padding: 4px 0; color: #64748b;">📎 Assets:</td>
-        <td style="padding: 4px 0; font-weight: 600; color: #4f46e5;">${fileCount} file(s) attached ${contentItem.pdfAsset ? '(includes PDF)' : ''}</td>
+        <td style="padding: 4px 0; color: #6b7280;">Assets:</td>
+        <td style="padding: 4px 0; font-weight: 600; color: #111827;">${fileCount} file(s) attached ${contentItem.pdfAsset ? '(includes PDF)' : ''}</td>
+      </tr>
+      <tr>
+        <td style="padding: 4px 0; color: #6b7280;">Direct Link:</td>
+        <td style="padding: 4px 0;"><a href="${itemUrl}" style="color: #4f46e5; text-decoration: underline; font-size: 12px;">Open item directly &rarr;</a></td>
       </tr>
       ${contentItem.summary ? `
       <tr>
-        <td style="padding: 4px 0; color: #64748b; vertical-align: top;">📝 Summary:</td>
-        <td style="padding: 4px 0; color: #334155;">${contentItem.summary}</td>
+        <td style="padding: 4px 0; color: #6b7280; vertical-align: top;">Summary:</td>
+        <td style="padding: 4px 0; color: #374151;">${contentItem.summary}</td>
       </tr>` : ''}
     </table>
 
-    <p style="font-size: 14px; color: #475569; margin: 0 0 16px 0;">
-      Please inspect the creative. You can approve it immediately or request revisions with notes from the dashboard.
+    <p style="font-size: 13px; color: #6b7280; margin: 0 0 16px 0;">
+      You can review and approve this piece or request changes with revision notes from the calendar.
     </p>
   `;
 
   return {
-    subject: `🚀 [Approval Needed] Creative Submitted: "${contentItem.name}" (${contentItem.date})`,
-    html: getEmailShell(title, badgeText, badgeColor, contentHtml, 'Review & Approve Creative', itemUrl)
+    subject: `Ready for review: "${contentItem.name}" (${contentItem.date})`,
+    html: getEmailShell(title, categoryLabel, contentHtml, 'Review & Approve Creative', itemUrl)
   };
 }
 
-function buildDailyUploadEmail({ items, date, appUrl }) {
-  const count = items.length;
-  const title = `Today's Upload Schedule: ${count} Piece${count === 1 ? '' : 's'}`;
-  const badgeText = `12:00 PM Daily Reminder`;
-  const badgeColor = '#10b981';
-  const listUrl = `${appUrl}`;
+function buildDailyUploadEmail({ items = [], date, appUrl }) {
+  const itemsNeedingPublish = items.filter(item => item.status !== 'published');
+  const itemsAlreadyPublished = items.filter(item => item.status === 'published');
 
-  const rowsHtml = items.map((item, i) => `
-    <tr style="border-bottom: 1px solid #e2e8f0;">
-      <td style="padding: 10px 8px; font-weight: 600; color: #0f172a; font-size: 14px;">
-        ${i + 1}. ${item.name}
+  let title = '';
+  let categoryLabel = '';
+  let subject = '';
+  let contentHtml = '';
+  const primaryCta = itemsNeedingPublish.length === 1
+    ? getItemDeepLink(appUrl, itemsNeedingPublish[0])
+    : (itemsNeedingPublish[0] ? getItemDeepLink(appUrl, itemsNeedingPublish[0]) : appUrl);
+
+  if (itemsNeedingPublish.length > 0) {
+    const firstTitle = itemsNeedingPublish[0].name || 'Content Piece';
+    if (itemsNeedingPublish.length === 1) {
+      subject = `Action Required: Publish "${firstTitle}" today (${date})`;
+    } else {
+      subject = `Action Required: Publish ${itemsNeedingPublish.length} posts today (${date})`;
+    }
+    title = `Content requiring publishing today (${date})`;
+    categoryLabel = `Action Required`;
+
+    const needsPublishRows = itemsNeedingPublish.map((item, i) => `
+      <tr style="border-bottom: 1px solid #f3f4f6;">
+        <td style="padding: 10px 8px; font-weight: 600; font-size: 13px;">
+          ${i + 1}. <a href="${getItemDeepLink(appUrl, item)}" style="color: #4f46e5; text-decoration: underline;">${item.name}</a>
+        </td>
+        <td style="padding: 10px 8px; font-size: 12px; color: #4b5563; text-transform: capitalize;">
+          ${item.platform || 'Social'}
+        </td>
+        <td style="padding: 10px 8px; font-size: 12px; color: #4b5563; text-transform: capitalize;">
+          ${item.type || 'Static'}
+        </td>
+        <td style="padding: 10px 8px;">
+          <span style="font-size: 11px; font-weight: 600; text-transform: capitalize; padding: 2px 8px; border-radius: 4px; background: #fef3c7; color: #92400e;">
+            ${item.status === 'ready' ? 'Ready' : item.status}
+          </span>
+        </td>
+      </tr>
+    `).join('');
+
+    contentHtml = `
+      <p style="font-size: 14px; margin: 0 0 14px 0; color: #374151;">
+        Hello Admin, today you have to publish the following content from your <strong>Codju Content Calendar</strong>. Click any title or the button below to view the piece directly:
+      </p>
+
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; margin-top: 10px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+        <thead>
+          <tr style="background-color: #f9fafb; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase;">
+            <th style="padding: 8px;">Content Piece</th>
+            <th style="padding: 8px;">Platform</th>
+            <th style="padding: 8px;">Format</th>
+            <th style="padding: 8px;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${needsPublishRows}
+        </tbody>
+      </table>
+
+      ${itemsAlreadyPublished.length > 0 ? `
+      <div style="margin-top: 18px; padding: 12px 14px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 6px;">
+        <p style="font-size: 12px; font-weight: 600; color: #475569; margin: 0 0 6px 0;">Already Published / Scheduled Today:</p>
+        <ul style="margin: 0; padding-left: 18px; font-size: 12px; color: #64748b;">
+          ${itemsAlreadyPublished.map(item => `<li><a href="${getItemDeepLink(appUrl, item)}" style="color: #64748b; text-decoration: underline;">${item.name}</a> (${item.platform || 'Social'}) &mdash; Marked Published ✓</li>`).join('')}
+        </ul>
+      </div>
+      ` : ''}
+
+      <p style="font-size: 13px; color: #6b7280; margin-top: 18px;">
+        Once published to your channels, mark the item as <strong>Publish 🚀</strong> in the calendar.
+      </p>
+    `;
+  } else {
+    // All items for today were ALREADY published
+    const firstTitle = itemsAlreadyPublished[0]?.name || 'Scheduled Content';
+    subject = `All posts scheduled for today (${date}) are published ✓`;
+    title = `Content for today (${date})`;
+    categoryLabel = `Published`;
+
+    const publishedRows = itemsAlreadyPublished.map((item, i) => `
+      <tr style="border-bottom: 1px solid #f3f4f6;">
+        <td style="padding: 10px 8px; font-weight: 600; font-size: 13px;">
+          ${i + 1}. <a href="${getItemDeepLink(appUrl, item)}" style="color: #111827; text-decoration: underline;">${item.name}</a>
+        </td>
+        <td style="padding: 10px 8px; font-size: 12px; color: #4b5563; text-transform: capitalize;">
+          ${item.platform || 'Social'}
+        </td>
+        <td style="padding: 10px 8px; font-size: 12px; color: #4b5563; text-transform: capitalize;">
+          ${item.type || 'Static'}
+        </td>
+        <td style="padding: 10px 8px;">
+          <span style="font-size: 11px; font-weight: 600; text-transform: capitalize; padding: 2px 8px; border-radius: 4px; background: #ecfdf5; color: #047857;">
+            Published ✓
+          </span>
+        </td>
+      </tr>
+    `).join('');
+
+    contentHtml = `
+      <p style="font-size: 14px; margin: 0 0 14px 0; color: #374151;">
+        Hello Admin, all content scheduled for today (${date}) has already been marked as published in your Codju Content Calendar.
+      </p>
+
+      <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; margin-top: 10px; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
+        <thead>
+          <tr style="background-color: #f9fafb; border-bottom: 1px solid #e5e7eb; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase;">
+            <th style="padding: 8px;">Content Piece</th>
+            <th style="padding: 8px;">Platform</th>
+            <th style="padding: 8px;">Format</th>
+            <th style="padding: 8px;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${publishedRows}
+        </tbody>
+      </table>
+    `;
+  }
+
+  return {
+    subject,
+    html: getEmailShell(title, categoryLabel, contentHtml, 'Open in Calendar', primaryCta)
+  };
+}
+
+function buildDesignerMonthReadyEmail({ _month, year, monthName, items = [], appUrl }) {
+  const count = items.length;
+  const title = `All designs ready for ${monthName} ${year}`;
+  const categoryLabel = `Review Needed`;
+  const monthUrl = `${(appUrl || '').replace(/\/+$/, '')}/?year=${year}&month=${_month}&category=social`;
+
+  const rowsHtml = items.slice(0, 15).map((item, i) => `
+    <tr style="border-bottom: 1px solid #f3f4f6;">
+      <td style="padding: 8px 6px; font-weight: 600; color: #111827; font-size: 12px;">${item.date}</td>
+      <td style="padding: 8px 6px; font-weight: 500; font-size: 12px;">
+        <a href="${getItemDeepLink(appUrl, item)}" style="color: #4f46e5; text-decoration: underline;">${i + 1}. ${item.name}</a>
       </td>
-      <td style="padding: 10px 8px; font-size: 13px; color: #475569; text-transform: capitalize;">
-        ${item.platform || 'Social'}
-      </td>
-      <td style="padding: 10px 8px; font-size: 13px; color: #475569; text-transform: capitalize;">
-        ${item.type || 'Static'}
-      </td>
-      <td style="padding: 10px 8px;">
-        <span style="font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 2px 8px; border-radius: 12px; background: ${item.status === 'ready' ? '#dcfce7; color: #166534;' : item.status === 'published' ? '#f1f5f9; color: #475569;' : '#fef3c7; color: #92400e;'}">
-          ${item.status}
-        </span>
-      </td>
+      <td style="padding: 8px 6px; font-size: 12px; color: #6b7280; text-transform: capitalize;">${item.platform || 'Social'}</td>
+      <td style="padding: 8px 6px; font-size: 12px; color: #6b7280; text-transform: capitalize;">${item.type || 'Static'}</td>
+      <td style="padding: 8px 6px; font-size: 11px; font-weight: 600; color: #0284c7;">Ready for Review</td>
     </tr>
   `).join('');
 
   const contentHtml = `
-    <p style="font-size: 15px; margin: 0 0 16px 0; color: #334155;">
-      Hello <strong>Admin</strong>, here is your daily reminder for <strong>${date}</strong>:
+    <p style="font-size: 14px; margin: 0 0 14px 0; color: #374151;">
+      Hello Admin, the Designer has completed the designs for <strong>${monthName} ${year}</strong> (${count} pieces total). You can check and review each design now.
     </p>
 
-    <div style="background-color: #ecfdf5; border-left: 4px solid #10b981; border-radius: 6px; padding: 14px 18px; margin: 16px 0 20px 0;">
-      <p style="font-size: 14px; font-weight: 700; color: #065f46; margin: 0;">
-        🚨 Today we have to upload this content from content calendar. Make sure it is uploaded!
-      </p>
-    </div>
-
-    <!-- Items Table -->
-    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; margin-top: 14px; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden; margin-top: 12px;">
       <thead>
-        <tr style="background-color: #f8fafc; border-bottom: 2px solid #e2e8f0; text-align: left; font-size: 11px; color: #64748b; text-transform: uppercase;">
-          <th style="padding: 8px;">Content</th>
-          <th style="padding: 8px;">Platform</th>
-          <th style="padding: 8px;">Format</th>
-          <th style="padding: 8px;">Status</th>
+        <tr style="background-color: #f9fafb; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase;">
+          <th style="padding: 8px 6px;">Date</th>
+          <th style="padding: 8px 6px;">Title</th>
+          <th style="padding: 8px 6px;">Platform</th>
+          <th style="padding: 8px 6px;">Format</th>
+          <th style="padding: 8px 6px;">Status</th>
         </tr>
       </thead>
       <tbody>
@@ -1350,59 +1531,56 @@ function buildDailyUploadEmail({ items, date, appUrl }) {
       </tbody>
     </table>
 
-    <p style="font-size: 13px; color: #64748b; margin-top: 18px;">
-      After uploading to Zoho Social or Instagram/LinkedIn, mark the item as <strong>"Publish 🚀"</strong> in the calendar.
+    ${items.length > 15 ? `
+    <p style="font-size: 12px; color: #6b7280; margin-top: 8px; text-align: center;">
+      + ${items.length - 15} more designs ready for ${monthName}
+    </p>` : ''}
+
+    <p style="font-size: 13px; color: #6b7280; margin-top: 16px;">
+      Check each design in the calendar. You can click <strong>Approve</strong> or <strong>Rectify / Changes</strong> to provide specific clarification.
     </p>
   `;
 
   return {
-    subject: `⏰ [Action Required] Daily Upload Reminder: ${count} Post${count === 1 ? '' : 's'} to Upload Today (${date})`,
-    html: getEmailShell(title, badgeText, badgeColor, contentHtml, 'Open Content Calendar & Upload', listUrl)
+    subject: `All designs ready: ${monthName} ${year} (${count} posts) by Designer`,
+    html: getEmailShell(title, categoryLabel, contentHtml, `Review ${monthName} Designs`, monthUrl)
   };
 }
 
 function buildMonthReadyEmail({ _month, year, monthName, items = [], customNote = '', appUrl }) {
-  const title = `Content Calendar Ready: ${monthName} ${year}`;
-  const badgeText = `Month Ready for Design`;
-  const badgeColor = '#6366f1';
-  const listUrl = `${appUrl}`;
+  const title = `Content schedule ready: ${monthName} ${year}`;
+  const categoryLabel = `Monthly Brief`;
+  const monthUrl = `${(appUrl || '').replace(/\/+$/, '')}/?year=${year}&month=${_month}&category=social`;
 
-  const topItemsHtml = items.slice(0, 10).map((item) => `
-    <tr style="border-bottom: 1px solid #f1f5f9;">
-      <td style="padding: 8px 6px; font-weight: 600; color: #0f172a; font-size: 13px;">${item.date}</td>
-      <td style="padding: 8px 6px; font-weight: 600; color: #334155; font-size: 13px;">${item.name}</td>
-      <td style="padding: 8px 6px; font-size: 12px; color: #64748b; text-transform: capitalize;">${item.platform || 'Social'}</td>
-      <td style="padding: 8px 6px; font-size: 12px; color: #64748b; text-transform: capitalize;">${item.type || 'Static'}</td>
+  const topItemsHtml = items.slice(0, 15).map((item) => `
+    <tr style="border-bottom: 1px solid #f3f4f6;">
+      <td style="padding: 8px 6px; font-weight: 600; color: #111827; font-size: 12px;">${item.date}</td>
+      <td style="padding: 8px 6px; font-weight: 500; font-size: 12px;">
+        <a href="${getItemDeepLink(appUrl, item)}" style="color: #4f46e5; text-decoration: underline;">${item.name}</a>
+      </td>
+      <td style="padding: 8px 6px; font-size: 12px; color: #6b7280; text-transform: capitalize;">${item.platform || 'Social'}</td>
+      <td style="padding: 8px 6px; font-size: 12px; color: #6b7280; text-transform: capitalize;">${item.type || 'Static'}</td>
     </tr>
   `).join('');
 
   const contentHtml = `
-    <p style="font-size: 15px; margin: 0 0 16px 0; color: #334155;">
-      Hello <strong>Designer</strong>,
+    <p style="font-size: 14px; margin: 0 0 14px 0; color: #374151;">
+      Hello Designer, the content schedule and briefs for <strong>${monthName} ${year}</strong> are ready in the calendar (${items.length} pieces planned). You can now begin creating designs for this month.
     </p>
-
-    <div style="background-color: #eef2ff; border-left: 4px solid #6366f1; border-radius: 6px; padding: 14px 18px; margin: 16px 0 20px 0;">
-      <p style="font-size: 15px; font-weight: 700; color: #3730a3; margin: 0 0 4px 0;">
-        🎉 All work has been uploaded for ${monthName} ${year}!
-      </p>
-      <p style="font-size: 14px; color: #4338ca; margin: 0;">
-        Now you can create and design the content pieces for this month.
-      </p>
-    </div>
 
     ${customNote ? `
-    <div style="background-color: #fffbeb; border: 1px solid #fde68a; border-radius: 8px; padding: 14px; margin: 16px 0;">
-      <p style="font-size: 11px; font-weight: 700; color: #92400e; text-transform: uppercase; margin: 0 0 4px 0;">Admin Note:</p>
-      <p style="font-size: 14px; color: #78350f; margin: 0; font-style: italic;">"${customNote}"</p>
+    <div style="background-color: #f9fafb; border-left: 3px solid #6b7280; border-radius: 4px; padding: 12px 14px; margin: 14px 0;">
+      <p style="font-size: 11px; font-weight: 700; color: #374151; text-transform: uppercase; margin: 0 0 4px 0; letter-spacing: 0.3px;">Admin Instructions:</p>
+      <p style="font-size: 13px; color: #1f2937; margin: 0;">${customNote}</p>
     </div>` : ''}
 
-    <p style="font-size: 14px; font-weight: 600; color: #0f172a; margin: 20px 0 8px 0;">
-      Planned Content Pieces (${items.length} total):
+    <p style="font-size: 13px; font-weight: 600; color: #111827; margin: 18px 0 8px 0;">
+      Scheduled Content Pieces (${items.length} total &mdash; click any piece to open directly):
     </p>
 
-    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden;">
+    <table width="100%" border="0" cellspacing="0" cellpadding="0" style="border-collapse: collapse; border: 1px solid #e5e7eb; border-radius: 6px; overflow: hidden;">
       <thead>
-        <tr style="background-color: #f8fafc; text-align: left; font-size: 11px; color: #64748b; text-transform: uppercase;">
+        <tr style="background-color: #f9fafb; text-align: left; font-size: 11px; color: #6b7280; text-transform: uppercase;">
           <th style="padding: 8px 6px;">Date</th>
           <th style="padding: 8px 6px;">Title</th>
           <th style="padding: 8px 6px;">Platform</th>
@@ -1414,43 +1592,44 @@ function buildMonthReadyEmail({ _month, year, monthName, items = [], customNote 
       </tbody>
     </table>
 
-    ${items.length > 10 ? `
-    <p style="font-size: 12px; color: #64748b; margin-top: 8px; text-align: center;">
-      + ${items.length - 10} more content items scheduled for ${monthName}
+    ${items.length > 15 ? `
+    <p style="font-size: 12px; color: #6b7280; margin-top: 8px; text-align: center;">
+      + ${items.length - 15} more content items scheduled for ${monthName}
     </p>` : ''}
 
-    <p style="font-size: 14px; color: #475569; margin-top: 20px;">
-      Click the button below to view all briefs, captions, and details in the dashboard.
+    <p style="font-size: 13px; color: #6b7280; margin-top: 16px;">
+      Open the calendar to view creative briefs, upload final assets, and submit each piece for Admin approval.
     </p>
   `;
 
   return {
-    subject: `🎨 [Work Uploaded] Content Calendar Ready for ${monthName} ${year} - Create Content`,
-    html: getEmailShell(title, badgeText, badgeColor, contentHtml, `Open ${monthName} Calendar & Start Designing`, listUrl)
+    subject: `Content calendar ready: ${monthName} ${year} (${items.length} posts)`,
+    html: getEmailShell(title, categoryLabel, contentHtml, `Open ${monthName} Calendar`, monthUrl)
   };
 }
 
 function buildTestEmail({ recipient, appUrl }) {
-  const title = `Codju Notification System Test`;
-  const badgeText = `Connection Verified`;
-  const badgeColor = '#10b981';
+  const title = `Notification System Verified`;
+  const categoryLabel = `System Active`;
 
   const contentHtml = `
-    <p style="font-size: 15px; margin: 0 0 16px 0; color: #334155;">
-      Hello! This is a test email from your <strong>Codju Content Calendar</strong> system.
+    <p style="font-size: 14px; margin: 0 0 14px 0; color: #374151;">
+      Hello, this is a test notification confirming that email notifications from <strong>Codju Content Calendar</strong> are active and delivering from your verified domain (<strong>hibhavishya.in</strong>).
     </p>
-    <div style="background-color: #ecfdf5; border-left: 4px solid #10b981; border-radius: 6px; padding: 14px; margin: 16px 0;">
-      <p style="font-size: 14px; font-weight: 700; color: #065f46; margin: 0;">
-        ✅ Your email delivery system is working!
-      </p>
-      <p style="font-size: 13px; color: #047857; margin: 4px 0 0 0;">
-        Automated emails for changes requested, approvals, 12:00 PM upload reminders, and monthly briefs will be dispatched to this address (${recipient}).
-      </p>
+    <div style="background-color: #f9fafb; border: 1px solid #e5e7eb; border-radius: 6px; padding: 14px; margin: 16px 0; font-size: 13px;">
+      <p style="margin: 0 0 6px 0; color: #111827; font-weight: 600;">Delivery Status: Active &amp; Verified ✓</p>
+      <p style="margin: 0 0 4px 0; color: #4b5563;">Sender: Bhavishya &lt;noreply@hibhavishya.in&gt;</p>
+      <p style="margin: 0 0 4px 0; color: #4b5563;">Reply-To: bhavishyasingla2005@gmail.com</p>
+      <p style="margin: 0; color: #4b5563;">Recipient: ${recipient}</p>
     </div>
+    <p style="font-size: 13px; color: #6b7280; margin-top: 14px;">
+      You can access the content calendar at: <a href="${appUrl}" style="color: #4f46e5; text-decoration: underline;">${appUrl}</a>
+    </p>
   `;
 
   return {
-    subject: `✅ Codju Content Calendar Notifications Verified!`,
-    html: getEmailShell(title, badgeText, badgeColor, contentHtml, 'Open Content Calendar', appUrl)
+    subject: `Email system active: Codju Content Calendar`,
+    html: getEmailShell(title, categoryLabel, contentHtml, 'Open Content Calendar', appUrl)
   };
 }
+

@@ -16,7 +16,7 @@ export default function ListView({
   year,
   month,
 }) {
-  const { isAdmin, openPinModal } = useAuth();
+  const { isViewer, isDesigner, isAdmin, openPinModal } = useAuth();
   const [expandedId, setExpandedId] = useState(null);
   const [draggedIndex, setDraggedIndex] = useState(null);
   const [customOrder, setCustomOrder] = useState(null);
@@ -152,12 +152,14 @@ export default function ListView({
             <tr>
               <th className="list-view__th list-view__th--drag" />
               <th className="list-view__th list-view__th--checkbox">
-                <input
-                  type="checkbox"
-                  checked={isAllSelected}
-                  onChange={handleSelectAll}
-                  className="list-view__checkbox"
-                />
+                {isAdmin && (
+                  <input
+                    type="checkbox"
+                    checked={isAllSelected}
+                    onChange={handleSelectAll}
+                    className="list-view__checkbox"
+                  />
+                )}
               </th>
               <th className="list-view__th">Date</th>
               <th className="list-view__th">Content Name</th>
@@ -197,32 +199,42 @@ export default function ListView({
       </div>
 
       <div className="list-view__footer-actions">
-        {isAdmin ? (
-          <button className="list-view__add-row" onClick={onCreateNew} type="button">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-              <line x1="12" y1="5" x2="12" y2="19" />
-              <line x1="5" y1="12" x2="19" y2="12" />
-            </svg>
-            Add Row
-          </button>
-        ) : (
-          <button className="list-view__add-row" onClick={() => openPinModal()} type="button" title="Unlock Admin to add rows">
-            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-              <rect x="3" y="11" width="18" height="11" rx="2" ry="2" />
-              <path d="M7 11V7a5 5 0 0 1 10 0v4" />
-            </svg>
-            <span>Unlock Admin to Add Rows</span>
-          </button>
+        {isAdmin && (
+          <>
+            <button className="list-view__add-row" onClick={onCreateNew} type="button">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                <line x1="12" y1="5" x2="12" y2="19" />
+                <line x1="5" y1="12" x2="19" y2="12" />
+              </svg>
+              Add Row
+            </button>
+
+            {selectedIds.length > 0 && (
+              <button className="list-view__delete-bulk animate-scale-in" onClick={handleBulkDelete} type="button">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3,6 5,6 21,6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
+                Delete Selected ({selectedIds.length})
+              </button>
+            )}
+          </>
         )}
 
-        {isAdmin && selectedIds.length > 0 && (
-          <button className="list-view__delete-bulk animate-scale-in" onClick={handleBulkDelete} type="button">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3,6 5,6 21,6" />
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            </svg>
-            Delete Selected ({selectedIds.length})
-          </button>
+        {isDesigner && (
+          <div className="list-view__designer-footer">
+            <span className="list-view__designer-note">
+              🎨 Designer Workspace &bull; {displayedContent.length} posts for this month
+            </span>
+          </div>
+        )}
+
+        {isViewer && (
+          <div className="list-view__viewer-footer">
+            <span className="list-view__viewer-note">
+              👁️ Viewer Mode &bull; Showing {displayedContent.length} posts (Read-Only)
+            </span>
+          </div>
         )}
       </div>
     </div>

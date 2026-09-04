@@ -110,7 +110,7 @@ export default function RevisionModal({
             </div>
             <div>
               <h3 className="revision-modal__title">
-                {isAdmin ? 'Revision Feedback & Changes' : 'Design Changes Requested'}
+                {isAdmin ? 'Rectify Design & Clarification Instructions' : isDesigner ? 'Design Clarification & Feedback' : 'Design Notes'}
               </h3>
               <p className="revision-modal__subtitle">
                 {contentItem.name} • {contentItem.date}
@@ -133,14 +133,15 @@ export default function RevisionModal({
             <form onSubmit={handleSubmitRevision} className="revision-modal__form">
               <div className="revision-modal__field">
                 <label className="revision-modal__label">
-                  What changes are needed? (Specific instructions for Designer)
+                  What changes are needed? (Clarification for Designer)
                 </label>
                 <textarea
                   className="revision-modal__textarea"
                   value={feedbackText}
                   onChange={(e) => setFeedbackText(e.target.value)}
-                  placeholder="e.g. Please update the headline font on slide 2, adjust contrast on background image, and add the new logo."
+                  placeholder="Detail the changes needed, what didn't work, and specific instructions on how to design it..."
                   rows={4}
+                  autoFocus
                 />
               </div>
 
@@ -213,6 +214,15 @@ export default function RevisionModal({
                 )}
               </div>
 
+              <div className="revision-modal__info-tip">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <circle cx="12" cy="12" r="10" />
+                  <line x1="12" y1="16" x2="12" y2="12" />
+                  <line x1="12" y1="8" x2="12.01" y2="8" />
+                </svg>
+                <span>Clicking send will update this item to <strong>Needs Changes</strong> and email your instructions to the Designer.</span>
+              </div>
+
               {uploadError && (
                 <div className="revision-modal__error-msg">{uploadError}</div>
               )}
@@ -240,9 +250,9 @@ export default function RevisionModal({
                 <button
                   type="submit"
                   disabled={saving || (!feedbackText.trim() && feedbackAssets.length === 0)}
-                  className="revision-modal__btn revision-modal__btn--danger"
+                  className="revision-modal__btn revision-modal__btn--send"
                 >
-                  {saving ? 'Saving...' : 'Request Revision ⚠️'}
+                  {saving ? 'Sending...' : 'Send Changes to Designer ✉️'}
                 </button>
               </div>
             </form>
@@ -256,7 +266,7 @@ export default function RevisionModal({
                     <line x1="12" y1="8" x2="12" y2="12" />
                     <line x1="12" y1="16" x2="12.01" y2="16" />
                   </svg>
-                  <span>Team Requested Changes</span>
+                  <span>Admin Clarification &amp; Requested Changes</span>
                 </div>
                 <p className="revision-modal__feedback-text">
                   {contentItem.feedback || 'Please review and update the creative assets according to the brief.'}
@@ -266,7 +276,7 @@ export default function RevisionModal({
               {/* Reference Images List */}
               {contentItem.feedbackAssets?.length > 0 && (
                 <div className="revision-modal__ref-section">
-                  <h4 className="revision-modal__ref-title">Reference Images & Inspiration:</h4>
+                  <h4 className="revision-modal__ref-title">Reference Images & Screenshots:</h4>
                   <div className="revision-modal__assets-grid">
                     {contentItem.feedbackAssets.map((asset) => (
                       <div
@@ -288,6 +298,17 @@ export default function RevisionModal({
                 </div>
               )}
 
+              {isDesigner && (
+                <div className="revision-modal__info-tip">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="12" y1="16" x2="12" y2="12" />
+                    <line x1="12" y1="8" x2="12.01" y2="8" />
+                  </svg>
+                  <span>After updating designs, click below to notify the Admin for approval.</span>
+                </div>
+              )}
+
               {/* Action Buttons */}
               <div className="revision-modal__actions">
                 <button
@@ -304,7 +325,7 @@ export default function RevisionModal({
                     disabled={saving}
                     className="revision-modal__btn revision-modal__btn--primary"
                   >
-                    {saving ? 'Updating...' : 'Resubmit for Review ✓'}
+                    {saving ? 'Notifying Admin...' : 'Resubmit for Approval 🚀'}
                   </button>
                 )}
               </div>

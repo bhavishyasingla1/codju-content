@@ -1,5 +1,4 @@
 import MonthSelector from '../MonthSelector/MonthSelector';
-import ViewToggle from '../ViewToggle/ViewToggle';
 import SearchBar from '../SearchBar/SearchBar';
 import { useAuth, ROLES } from '../../context/AuthContext';
 import './TopNav.css';
@@ -11,13 +10,10 @@ export default function TopNav({
   onNextMonth,
   onCreateMonth,
   onChangeDate,
-  currentView,
-  onViewChange,
   searchQuery,
   onSearchChange,
   onSearchClear,
   onOpenSettings,
-  designerEmail,
 }) {
   const { role, openPinModal, isAdmin } = useAuth();
 
@@ -39,37 +35,23 @@ export default function TopNav({
           onChangeDate={onChangeDate}
         />
 
-        {/* Right side: Designer Info + Settings + Role Switcher + View Toggle + Search */}
+        {/* Right side: Settings + Role Switcher + Search */}
         <div className="top-nav__actions">
-          {/* Admin: Designer Email quick status & Settings button */}
+          {/* Admin: Settings modal button (all email configs are centralized inside) */}
           {isAdmin && (
-            <>
-              <button
-                type="button"
-                className="top-nav__designer-badge"
-                onClick={onOpenSettings}
-                title={designerEmail ? `Designer email: ${designerEmail} (Click to change)` : "Click to set Designer email in Settings"}
-              >
-                <span className="top-nav__designer-icon">🎨</span>
-                <span className="top-nav__designer-text">
-                  {designerEmail ? designerEmail.split('@')[0] : '+ Designer Email'}
-                </span>
-              </button>
-
-              <button
-                type="button"
-                className="top-nav__settings-btn"
-                onClick={onOpenSettings}
-                title="Settings & Email Notifications"
-                aria-label="Settings"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                  <circle cx="12" cy="12" r="3" />
-                  <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
-                </svg>
-                <span className="top-nav__settings-label">Settings</span>
-              </button>
-            </>
+            <button
+              type="button"
+              className="top-nav__settings-btn"
+              onClick={onOpenSettings}
+              title="Settings & Email Notifications"
+              aria-label="Settings"
+            >
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                <circle cx="12" cy="12" r="3" />
+                <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z" />
+              </svg>
+              <span className="top-nav__settings-label">Settings</span>
+            </button>
           )}
 
           <button
@@ -90,7 +72,6 @@ export default function TopNav({
             </svg>
           </button>
 
-          <ViewToggle currentView={currentView} onViewChange={onViewChange} />
           <SearchBar
             query={searchQuery}
             onChange={onSearchChange}
@@ -101,3 +82,4 @@ export default function TopNav({
     </nav>
   );
 }
+

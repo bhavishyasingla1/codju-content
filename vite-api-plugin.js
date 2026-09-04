@@ -631,32 +631,54 @@ export function viteApiPlugin() {
             const map = {};
             for (const r of (rows || [])) map[r.key] = r.value;
 
+            function normalizeSenderEmail(senderEmail) {
+              if (!senderEmail || senderEmail.includes('onboarding@resend.dev') || senderEmail.includes('@gmail.com')) {
+                return 'Bhavishya <noreply@hibhavishya.in>';
+              }
+              if (senderEmail.includes('@haibhavishya.in')) {
+                return senderEmail.replace('@haibhavishya.in', '@hibhavishya.in');
+              }
+              return senderEmail;
+            }
+
             const adminEmail = map.admin_email || process.env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com';
             const resendApiKey = map.resend_api_key || process.env.RESEND_API_KEY || '';
-            const senderEmail = map.sender_email || 'Codju Content Calendar <onboarding@resend.dev>';
+            const senderEmail = normalizeSenderEmail(map.sender_email);
 
             const now = new Date();
             const istDate = new Date(now.getTime() + (5.5 * 60 * 60 * 1000));
             const todayStr = istDate.toISOString().split('T')[0];
 
             const contentRows = await queryD1('SELECT * FROM content WHERE date = ?;', [todayStr]);
-            const items = (contentRows || []).map(mapToFrontend);
+            const allItems = (contentRows || []).map(mapToFrontend);
+            const items = allItems.filter(item => item.status !== 'published');
 
+            if (items.length === 0 && req.method === 'GET' && !url.searchParams.get('force')) {
+              res.end(JSON.stringify({
+                skipped: true,
+                reason: allItems.length > 0
+                  ? `All content pieces scheduled for today (${todayStr}) are already published. No email needed.`
+                  : `No content pieces scheduled for today (${todayStr})`
+              }));
+              return;
+            }
+
+            const itemsToSend = items.length > 0 ? items : allItems;
             const logId = 'nl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
-            const subject = `⏰ [Action Required] Daily Upload Reminder: ${items.length} Post(s) to Upload Today (${todayStr})`;
+            const subject = `⏰ [Action Required] Daily Upload Reminder: ${itemsToSend.length} Post(s) to Upload Today (${todayStr})`;
 
             if (!resendApiKey) {
               await queryD1(
                 'INSERT INTO notification_logs (id, type, recipient, subject, status, error, metadata, sent_at) VALUES (?, ?, ?, ?, ?, ?, ?, datetime("now"));',
-                [logId, 'daily_upload', adminEmail, subject, 'simulated', null, JSON.stringify({ itemCount: items.length, todayStr })]
+                [logId, 'daily_upload', adminEmail, subject, 'simulated', null, JSON.stringify({ itemCount: itemsToSend.length, todayStr })]
               );
               res.end(JSON.stringify({
                 success: true,
                 simulated: true,
-                itemCount: items.length,
+                itemCount: itemsToSend.length,
                 today: todayStr,
                 recipient: adminEmail,
-                message: `Daily reminder simulated for ${items.length} items. Add Resend API key in Settings for live inbox delivery.`
+                message: `Daily reminder simulated for ${itemsToSend.length} items. Add Resend API key in Settings for live inbox delivery.`
               }));
               return;
             }
@@ -706,9 +728,9 @@ export function viteApiPlugin() {
             for (const r of (rows || [])) map[r.key] = r.value;
 
             const adminEmail = map.admin_email || process.env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com';
-            const designerEmail = map.designer_email || '';
+            const designerEmail = map.designer_email || 'gurpreetcodju@gmail.com';
             const resendApiKey = map.resend_api_key || process.env.RESEND_API_KEY || '';
-            const senderEmail = map.sender_email || 'Codju Content Calendar <onboarding@resend.dev>';
+            const senderEmail = normalizeSenderEmail(map.sender_email);
 
             let recipient = '';
             let subject = '';
@@ -722,8 +744,17 @@ export function viteApiPlugin() {
                   res.end(JSON.stringify({ error: 'Designer email is not configured. Please add the Designer Email in Settings.' }));
                   return;
                 }
-                subject = `⚠️ Changes Requested: "${body.contentItem?.name || 'Content Piece'}" (${body.contentItem?.date || ''})`;
-                html = `<div style="font-family: sans-serif; padding: 20px;"><h2>Changes Requested</h2><p>Admin requested changes for <strong>${body.contentItem?.name}</strong>.</p><blockquote>${body.feedback || ''}</blockquote></div>`;
+                subject = `Changes requested: "${body.contentItem?.name || 'Content Piece'}" (${body.contentItem?.date || ''})`;
+                html = `
+                  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <h2 style="font-size: 18px; margin: 0 0 14px 0; color: #111827;">Changes requested: "${body.contentItem?.name || 'Content Piece'}"</h2>
+                    <p style="font-size: 14px; color: #374151;">Hello Designer, revisions have been requested before this content piece can be approved.</p>
+                    <div style="background: #fefce8; border-left: 3px solid #eab308; padding: 12px 14px; margin: 16px 0; border-radius: 4px;">
+                      <strong style="font-size: 12px; text-transform: uppercase; color: #854d0e;">Notes / Changes:</strong>
+                      <p style="margin: 4px 0 0 0; font-size: 14px; color: #713f12; white-space: pre-wrap;">${body.feedback || 'Please update creative assets according to the brief.'}</p>
+                    </div>
+                    <p style="font-size: 13px; color: #6b7280;">Once updated, upload the new files in the content calendar and click "Resubmit for Review".</p>
+                  </div>`;
                 break;
 
               case 'approval_needed':
@@ -733,8 +764,18 @@ export function viteApiPlugin() {
                   res.end(JSON.stringify({ error: 'Admin email is not configured. Please add the Admin Email in Settings.' }));
                   return;
                 }
-                subject = `🚀 [Approval Needed] Creative Submitted: "${body.contentItem?.name || 'Content Piece'}" (${body.contentItem?.date || ''})`;
-                html = `<div style="font-family: sans-serif; padding: 20px;"><h2>Approval Needed</h2><p>Designer submitted files for <strong>${body.contentItem?.name}</strong>.</p></div>`;
+                subject = `Ready for review: "${body.contentItem?.name || 'Content Piece'}" (${body.contentItem?.date || ''})`;
+                html = `
+                  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <h2 style="font-size: 18px; margin: 0 0 14px 0; color: #111827;">Creative submitted: "${body.contentItem?.name || 'Content Piece'}"</h2>
+                    <p style="font-size: 14px; color: #374151;">Hello Admin, the Designer has submitted creative files for review.</p>
+                    <table style="width: 100%; font-size: 13px; background: #f9fafb; padding: 12px; border-radius: 6px; border: 1px solid #e5e7eb;">
+                      <tr><td style="color: #6b7280; width: 100px;">Scheduled:</td><td><strong>${body.contentItem?.date || 'TBD'}</strong></td></tr>
+                      <tr><td style="color: #6b7280;">Platform:</td><td><strong>${body.contentItem?.platform || 'Social'}</strong></td></tr>
+                      <tr><td style="color: #6b7280;">Format:</td><td><strong>${body.contentItem?.type || 'Static'}</strong></td></tr>
+                    </table>
+                    <p style="font-size: 13px; color: #6b7280; margin-top: 16px;">Please review the files in your calendar dashboard.</p>
+                  </div>`;
                 break;
 
               case 'month_ready':
@@ -744,14 +785,45 @@ export function viteApiPlugin() {
                   res.end(JSON.stringify({ error: 'Designer email is not configured. Please add the Designer Email in Settings.' }));
                   return;
                 }
-                subject = `🎨 [Work Uploaded] Content Calendar Ready for ${body.monthName || ''} ${body.year || ''} - Create Content`;
-                html = `<div style="font-family: sans-serif; padding: 20px;"><h2>All Work Uploaded for ${body.monthName} ${body.year}</h2><p>All work has been uploaded. Now you can create content for this month.</p></div>`;
+                subject = `Content calendar ready: ${body.monthName || ''} ${body.year || ''} (${body.items?.length || 0} posts)`;
+                html = `
+                  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <h2 style="font-size: 18px; margin: 0 0 14px 0; color: #111827;">Content schedule ready: ${body.monthName || ''} ${body.year || ''}</h2>
+                    <p style="font-size: 14px; color: #374151;">Hello Designer, all work has been uploaded for <strong>${body.monthName || ''} ${body.year || ''}</strong> (${body.items?.length || 0} posts scheduled). You can now begin creating the designs for this month.</p>
+                    ${body.customNote ? `
+                    <div style="background: #f9fafb; border-left: 3px solid #6b7280; padding: 12px; margin: 14px 0; border-radius: 4px;">
+                      <strong style="font-size: 11px; text-transform: uppercase; color: #374151;">Admin Note:</strong>
+                      <p style="margin: 4px 0 0 0; font-size: 13px; color: #1f2937;">${body.customNote}</p>
+                    </div>` : ''}
+                    <p style="font-size: 13px; color: #6b7280;">Please open the calendar dashboard to view all briefs and start designing.</p>
+                  </div>`;
+                break;
+
+              case 'designer_month_ready':
+                recipient = adminEmail;
+                if (!recipient) {
+                  res.statusCode = 400;
+                  res.end(JSON.stringify({ error: 'Admin email is not configured. Please add the Admin Email in Settings.' }));
+                  return;
+                }
+                subject = `All designs ready: ${body.monthName || ''} ${body.year || ''} (${body.items?.length || 0} posts) by Designer`;
+                html = `
+                  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <h2 style="font-size: 18px; margin: 0 0 14px 0; color: #111827;">All designs ready for ${body.monthName || ''} ${body.year || ''}</h2>
+                    <p style="font-size: 14px; color: #374151;">Hello Admin, the Designer has completed the designs for <strong>${body.monthName || ''} ${body.year || ''}</strong> (${body.items?.length || 0} pieces total). You can check and review each design now.</p>
+                    <p style="font-size: 13px; color: #6b7280;">Open the calendar to approve designs or request changes with clarification notes.</p>
+                  </div>`;
                 break;
 
               case 'test':
                 recipient = body.recipient || adminEmail;
-                subject = '✅ Codju Content Calendar Notifications Verified!';
-                html = `<div style="font-family: sans-serif; padding: 20px;"><h2>Notification Test</h2><p>Your notification setup is working properly!</p></div>`;
+                subject = 'Email notification test: Codju Content Calendar';
+                html = `
+                  <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px;">
+                    <h2 style="font-size: 18px; margin: 0 0 14px 0; color: #111827;">Notification System Test</h2>
+                    <p style="font-size: 14px; color: #374151;">Your email notification setup is verified and active!</p>
+                    <p style="font-size: 13px; color: #6b7280;">Delivered to: ${recipient}</p>
+                  </div>`;
                 break;
 
               default:
@@ -784,6 +856,7 @@ export function viteApiPlugin() {
               body: JSON.stringify({
                 from: senderEmail,
                 to: [recipient],
+                reply_to: adminEmail,
                 subject,
                 html
               })

@@ -206,6 +206,17 @@ export const STATUSES = [
   { value: 'published', label: 'Published', color: 'var(--color-status-published)', bg: 'var(--color-status-published-bg)' },
 ];
 
+// Written content has strictly 3 statuses: Draft, Ready, Published
+export const WRITTEN_STATUSES = [
+  { value: 'draft', label: 'Draft', color: 'var(--color-status-draft)', bg: 'var(--color-status-draft-bg)' },
+  { value: 'ready', label: 'Ready', color: 'var(--color-status-ready)', bg: 'var(--color-status-ready-bg)' },
+  { value: 'published', label: 'Published', color: 'var(--color-status-published)', bg: 'var(--color-status-published-bg)' },
+];
+
+export function getStatusesByCategory(category = 'social') {
+  return category === 'written' ? WRITTEN_STATUSES : STATUSES;
+}
+
 export function getTypesByCategory(category = 'social') {
   return CONTENT_TYPES.filter(t => t.category === category || t.category === 'all');
 }

@@ -13,11 +13,12 @@ import ContentEditor from './components/ContentEditor/ContentEditor';
 import MonthNotes from './components/MonthNotes/MonthNotes';
 import UndoToast from './components/UndoToast/UndoToast';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { getMonthName } from './utils/helpers';
+import { getMonthName, safeJsonParse } from './utils/helpers';
 import ErrorBoundary from './components/ErrorBoundary';
 import SettingsModal from './components/SettingsModal/SettingsModal';
-import MonthNotifyModal from './components/MonthNotifyModal/MonthNotifyModal';
+import ViewToggle from './components/ViewToggle/ViewToggle';
 import NotificationToast from './components/NotificationToast/NotificationToast';
+import MonthNotifyModal from './components/MonthNotifyModal/MonthNotifyModal';
 import { fetchSettings, sendNotification } from './services/notificationService';
 import './App.css';
 
@@ -26,7 +27,7 @@ const RevisionModal = lazy(() => import('./components/RevisionModal/RevisionModa
 const AiModal = lazy(() => import('./components/AiModal/AiModal'));
 
 function MainApp() {
-  const { isAdmin, isPinModalOpen, closePinModal, openPinModal } = useAuth();
+  const { isAdmin, isDesigner, isViewer, isPinModalOpen, closePinModal, openPinModal } = useAuth();
 
   // Always default to the current active month and year
   const currentDate = useMemo(() => new Date(), []);
@@ -69,6 +70,37 @@ function MainApp() {
     return content.filter(item => item.category === 'written').length;
   }, [content]);
 
+  // Track sent month brief signatures in localStorage
+  const [sentMonthBriefs, setSentMonthBriefs] = useState(() => {
+    return safeJsonParse(localStorage.getItem('codju_sent_month_briefs'), {});
+  });
+
+  // Social content items specifically for the selected month
+  const currentMonthSocialItems = useMemo(() => {
+    const monthPrefix = `${year}-${String(month).padStart(2, '0')}`;
+    return content.filter(item => (item.category || 'social') === 'social' && item.date && item.date.startsWith(monthPrefix));
+  }, [content, year, month]);
+
+  // Current month's social content signature based on row IDs
+  const currentMonthSignature = useMemo(() => {
+    return currentMonthSocialItems.map(item => item.id).sort().join(',');
+  }, [currentMonthSocialItems]);
+
+  const monthKey = `${year}-${String(month).padStart(2, '0')}`;
+  const isCurrentMonthBriefSent = Boolean(
+    currentMonthSignature &&
+    sentMonthBriefs[monthKey] &&
+    sentMonthBriefs[monthKey] === currentMonthSignature
+  );
+
+  // Send Month to Designer button:
+  // ONLY comes once content for that month has been created/generated (> 0 items),
+  // and once sent, it does NOT come again unless rows are added or removed!
+  const canSendMonthToDesigner = isAdmin &&
+    activeCategory === 'social' &&
+    currentMonthSocialItems.length > 0 &&
+    !isCurrentMonthBriefSent;
+
   // Search Hook on filtered category items
   const {
     query: searchQuery,
@@ -86,7 +118,7 @@ function MainApp() {
   const [notifToast, setNotifToast] = useState(null);
   const [appSettings, setAppSettings] = useState({
     adminEmail: 'bhavishyasingla2005@gmail.com',
-    designerEmail: '',
+    designerEmail: 'gurpreetcodju@gmail.com',
   });
 
   // Load app notification settings
@@ -96,6 +128,38 @@ function MainApp() {
       .catch((err) => console.warn('Could not load settings:', err));
   }, []);
 
+  // Handle URL deep-linking (?item=...&category=...&year=...&month=...)
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+    const params = new URLSearchParams(window.location.search);
+    const targetCategory = params.get('category');
+    const targetYear = params.get('year');
+    const targetMonth = params.get('month');
+    const targetItem = params.get('item');
+
+    if (targetCategory && (targetCategory === 'social' || targetCategory === 'written')) {
+      setActiveCategory(targetCategory);
+    }
+    if (targetYear && !isNaN(Number(targetYear))) {
+      setYear(Number(targetYear));
+    }
+    if (targetMonth && !isNaN(Number(targetMonth))) {
+      setMonth(Number(targetMonth));
+    }
+
+    if (targetItem) {
+      const timer = setTimeout(() => {
+        const rowEl = document.getElementById(`row-${targetItem}`);
+        if (rowEl) {
+          rowEl.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          rowEl.classList.add('content-row--highlight');
+          setTimeout(() => rowEl.classList.remove('content-row--highlight'), 4500);
+        }
+      }, 700);
+      return () => clearTimeout(timer);
+    }
+  }, [content.length]);
+
   const showToast = (message, isError = false, title = null) => {
     setNotifToast({
       id: Date.now(),
@@ -103,6 +167,17 @@ function MainApp() {
       isError,
       title: title || (isError ? 'Notice' : 'Email Notification'),
     });
+  };
+
+  const handleMonthNotifySuccess = (msg, signature) => {
+    showToast(msg);
+    if (signature) {
+      setSentMonthBriefs(prev => {
+        const next = { ...prev, [monthKey]: signature };
+        localStorage.setItem('codju_sent_month_briefs', JSON.stringify(next));
+        return next;
+      });
+    }
   };
 
   // Preview state
@@ -412,6 +487,33 @@ function MainApp() {
     }
   };
 
+  // Designer notifies Admin that all designs for the month are completed
+  const handleDesignerNotifyMonthReady = async () => {
+    const monthItems = categoryContent.filter(item => {
+      const monthStr = `${year}-${String(month).padStart(2, '0')}`;
+      return item.date && item.date.startsWith(monthStr);
+    });
+
+    try {
+      const res = await sendNotification({
+        type: 'designer_month_ready',
+        year,
+        month,
+        monthName: getMonthName(month),
+        items: monthItems.map(item => ({
+          date: item.date,
+          name: item.name,
+          platform: item.platform,
+          type: item.type,
+          status: item.status,
+        })),
+      });
+      showToast(res.message || 'Admin notified that all month designs are ready for review!');
+    } catch (err) {
+      showToast(`Failed to notify admin: ${err.message}`, true);
+    }
+  };
+
   return (
     <div className="app-layout">
       {/* Top Navigation */}
@@ -422,13 +524,10 @@ function MainApp() {
         onNextMonth={handleNextMonth}
         onCreateMonth={handleCreateMonth}
         onChangeDate={handleDateChange}
-        currentView={view}
-        onViewChange={setView}
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onSearchClear={clearSearch}
         onOpenSettings={() => setIsSettingsOpen(true)}
-        designerEmail={appSettings.designerEmail}
       />
 
       {/* Main Content Area */}
@@ -463,69 +562,123 @@ function MainApp() {
                 <span className="app-category-tab__badge">{writtenCount}</span>
               </button>
             </div>
+
+            {/* View Switcher: List, Grid, Calendar */}
+            <ViewToggle currentView={view} onViewChange={setView} />
           </div>
 
           <div className="app-main__subheader-right">
-            {/* Undo & Redo Buttons */}
-            <div className="app-main__history-group" role="group" aria-label="Undo and Redo">
-              <button
-                type="button"
-                className="app-main__history-btn"
-                disabled={!canUndo}
-                onClick={undo}
-                title={canUndo ? `Undo: ${lastUndoAction?.description || 'Last action'} (⌘Z)` : 'Nothing to undo (⌘Z)'}
-                aria-label="Undo last action"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="1 4 1 10 7 10" />
-                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                </svg>
-                <span>Undo</span>
-              </button>
-
-              <button
-                type="button"
-                className="app-main__history-btn"
-                disabled={!canRedo}
-                onClick={redo}
-                title={canRedo ? `Redo: ${lastRedoAction?.description || 'Last undone action'} (⌘⇧Z)` : 'Nothing to redo (⌘⇧Z)'}
-                aria-label="Redo last undone action"
-              >
-                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                  <polyline points="23 4 23 10 17 10" />
-                  <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
-                </svg>
-                <span>Redo</span>
-              </button>
-            </div>
-
-            {/* Notify Designer for Month Button (Admin only) */}
+            {/* ADMIN ACTIONS: Kickoff Month notification, History, & AI Generation */}
             {isAdmin && (
-              <button
-                className="app-main__month-notify-btn"
-                onClick={() => setIsMonthNotifyOpen(true)}
-                type="button"
-                title={`Send monthly kickoff email to designer that all work has been uploaded for ${getMonthName(month)} ${year}`}
-              >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
-                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                  <polyline points="22,6 12,13 2,6" />
-                </svg>
-                <span>Notify Designer for {getMonthName(month)}</span>
-              </button>
+              <>
+                {canSendMonthToDesigner && (
+                  <button
+                    type="button"
+                    className="app-main__notify-designer-btn"
+                    onClick={() => setIsMonthNotifyOpen(true)}
+                    title={`Send ${getMonthName(month)} content table to designer via email`}
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                      <polyline points="22,6 12,13 2,6" />
+                    </svg>
+                    <span>Send Month to Designer</span>
+                  </button>
+                )}
+
+                {/* Undo & Redo Buttons */}
+                <div className="app-main__history-group" role="group" aria-label="Undo and Redo">
+                  <button
+                    type="button"
+                    className="app-main__history-btn"
+                    disabled={!canUndo}
+                    onClick={undo}
+                    title={canUndo ? `Undo: ${lastUndoAction?.description || 'Last action'} (⌘Z)` : 'Nothing to undo (⌘Z)'}
+                    aria-label="Undo last action"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="1 4 1 10 7 10" />
+                      <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                    </svg>
+                    <span>Undo</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="app-main__history-btn"
+                    disabled={!canRedo}
+                    onClick={redo}
+                    title={canRedo ? `Redo: ${lastRedoAction?.description || 'Last undone action'} (⌘⇧Z)` : 'Nothing to redo (⌘⇧Z)'}
+                    aria-label="Redo last undone action"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                      <polyline points="23 4 23 10 17 10" />
+                      <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+                    </svg>
+                    <span>Redo</span>
+                  </button>
+                </div>
+
+                <button
+                  className="app-main__ai-btn"
+                  onClick={() => setIsAiModalOpen(true)}
+                  type="button"
+                  title={`Generate ${activeCategory === 'written' ? 'editorial articles schedule' : 'social content schedule'} with AI`}
+                >
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
+                  </svg>
+                  <span>Generate Table</span>
+                </button>
+              </>
             )}
 
-            <button
-              className="app-main__ai-btn"
-              onClick={() => setIsAiModalOpen(true)}
-              type="button"
-              title={`Generate ${activeCategory === 'written' ? 'editorial articles schedule' : 'social content schedule'} with AI`}
-            >
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
-                <path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83" />
-              </svg>
-              <span>Generate Table</span>
-            </button>
+            {/* DESIGNER ACTIONS: Only active on Social Content */}
+            {isDesigner && activeCategory === 'social' && (
+              <div className="app-main__designer-actions">
+                <span className="app-main__role-pill app-main__role-pill--designer">
+                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="m4.93 4.93 4.24 4.24" />
+                    <path d="m14.83 9.17 4.24-4.24" />
+                    <path d="m14.83 14.83 4.24 4.24" />
+                    <path d="m9.17 14.83-4.24 4.24" />
+                    <circle cx="12" cy="12" r="4" />
+                  </svg>
+                  <span>Designer Mode</span>
+                </span>
+                <button
+                  type="button"
+                  className="app-main__notify-admin-btn"
+                  onClick={handleDesignerNotifyMonthReady}
+                  title="Notify Admin via email that all designs for this month are uploaded & ready for review"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                    <polyline points="22,6 12,13 2,6" />
+                  </svg>
+                  <span>Notify Admin: Month Designs Ready</span>
+                </button>
+              </div>
+            )}
+
+            {/* DESIGNER ON WRITTEN CONTENT: Read-only notice */}
+            {isDesigner && activeCategory === 'written' && (
+              <span className="app-main__role-pill app-main__role-pill--viewer" title="Written content (Blogs & Newsletters) is managed solely by Admin">
+                <span>Admin Editorial Only</span>
+              </span>
+            )}
+
+            {/* VIEWER ACTIONS: Read-Only Viewer Pill */}
+            {isViewer && (
+              <span className="app-main__role-pill app-main__role-pill--viewer">
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                  <circle cx="12" cy="12" r="3" />
+                </svg>
+                <span>Read-Only Viewer</span>
+              </span>
+            )}
           </div>
         </div>
 
@@ -672,23 +825,26 @@ function MainApp() {
         onDismiss={dismissUndoToast}
       />
 
-      {/* Admin Settings Modal */}
+      {/* Admin Settings Modal (Email & API credentials and live activity logs) */}
       <SettingsModal
         isOpen={isSettingsOpen}
         onClose={() => setIsSettingsOpen(false)}
         onSettingsUpdated={(newSettings) => setAppSettings(newSettings)}
       />
 
-      {/* Monthly Content Brief Notification Modal */}
+      {/* Direct Month Kickoff Notification Modal */}
       <MonthNotifyModal
         isOpen={isMonthNotifyOpen}
         onClose={() => setIsMonthNotifyOpen(false)}
         year={year}
         month={month}
-        content={content}
+        content={categoryContent}
         designerEmail={appSettings.designerEmail}
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        onSuccess={(msg) => showToast(msg, false, 'Month Brief Sent')}
+        onOpenSettings={() => {
+          setIsMonthNotifyOpen(false);
+          setIsSettingsOpen(true);
+        }}
+        onSuccess={handleMonthNotifySuccess}
       />
 
       {/* Live Email Notification Toast */}

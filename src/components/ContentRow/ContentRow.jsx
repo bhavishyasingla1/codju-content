@@ -27,12 +27,15 @@ export default function ContentRow({
   const [localItem, setLocalItem] = useState(item);
   const [isDraggable, setIsDraggable] = useState(false);
 
+  const isWritten = (item.category || 'social') === 'written';
+  const canEdit = isWritten ? isAdmin : !isViewer;
+
   useEffect(() => {
     setLocalItem(item);
   }, [item]);
 
   const handleInputChange = (field, value) => {
-    if (isViewer) {
+    if (!canEdit) {
       openPinModal();
       return;
     }
@@ -42,16 +45,28 @@ export default function ContentRow({
   };
 
   const handleStatusChange = () => {
-    if (isViewer) {
+    if (!isAdmin) {
       openPinModal();
       return;
     }
-    if (isAdmin) {
-      const order = ['draft', 'pending', 'revision', 'ready', 'published'];
-      const currentIdx = order.indexOf(item.status);
-      const nextStatus = order[(currentIdx + 1) % order.length];
-      onUpdate(item.id, { status: nextStatus });
+    const order = isWritten
+      ? ['draft', 'ready', 'published']
+      : ['draft', 'pending', 'revision', 'ready', 'published'];
+    const currentIdx = order.indexOf(item.status);
+    const nextStatus = order[(currentIdx + 1) % order.length];
+    onUpdate(item.id, { status: nextStatus });
+  };
+
+  const handleMarkReady = (e) => {
+    e?.stopPropagation();
+    if (!isAdmin) {
+      openPinModal();
+      return;
     }
+    onUpdate(item.id, {
+      status: 'ready',
+      reviewedAt: new Date().toISOString(),
+    });
   };
 
   const handleApprove = (e) => {
@@ -106,7 +121,7 @@ export default function ContentRow({
 
   const handleSendForApproval = (e) => {
     e?.stopPropagation();
-    if (isViewer) {
+    if (isViewer || isWritten) {
       openPinModal();
       return;
     }
@@ -122,9 +137,9 @@ export default function ContentRow({
   const fileCount = (item.assets?.length || 0) + (item.pdfAsset ? 1 : 0);
   const hasMedia = fileCount > 0 || !!item.thumbnailAsset || (item.type === 'text' && !!item.richText?.trim() && item.richText !== '<p><br></p>');
 
-  // If content is present/uploaded from designer side, effective status is 'pending' (In Review).
-  // If nothing is visible/uploaded (!hasMedia), it shows 'draft'.
-  const currentStatus = (item.status === 'draft' && hasMedia) ? 'pending' : item.status;
+  // If content is present/uploaded from designer side (social only), effective status is 'pending' (In Review).
+  // For written content, status is strictly controlled by Admin: draft -> ready -> published.
+  const currentStatus = (!isWritten && item.status === 'draft' && hasMedia) ? 'pending' : item.status;
 
   const handleViewPreview = () => {
     const allAssets = [];
@@ -198,43 +213,50 @@ export default function ContentRow({
                 <circle cx="15" cy="19" r="1.5" />
               </svg>
             </div>
-          ) : (
-            <span style={{ color: 'var(--color-text-muted)', opacity: 0.3 }}>•</span>
-          )}
+          ) : null}
         </td>
 
         {/* Cell: Checkbox selection */}
         <td className="content-row__cell content-row__cell--checkbox" onClick={(e) => e.stopPropagation()}>
-          <input
-            type="checkbox"
-            checked={isSelected}
-            onChange={isAdmin ? onSelectChange : undefined}
-            disabled={!isAdmin}
-            className="content-row__checkbox"
-          />
+          {isAdmin ? (
+            <input
+              type="checkbox"
+              checked={isSelected}
+              onChange={onSelectChange}
+              className="content-row__checkbox"
+            />
+          ) : null}
         </td>
 
         {/* Cell: Date */}
         <td className="content-row__cell content-row__cell--date">
-          <input
-            type="date"
-            className="content-row__input content-row__input--date"
-            value={localItem.date || ''}
-            onChange={(e) => handleInputChange('date', e.target.value)}
-            readOnly={!isAdmin}
-          />
+          {isAdmin ? (
+            <input
+              type="date"
+              className="content-row__input content-row__input--date"
+              value={localItem.date || ''}
+              onChange={(e) => handleInputChange('date', e.target.value)}
+            />
+          ) : (
+            <span className="content-row__text content-row__text--date">{localItem.date || '—'}</span>
+          )}
         </td>
 
         {/* Cell: Name */}
         <td className="content-row__cell content-row__cell--name">
-          <input
-            type="text"
-            className="content-row__input content-row__input--name"
-            value={localItem.name || ''}
-            onChange={(e) => handleInputChange('name', e.target.value)}
-            placeholder="Content name..."
-            readOnly={!isAdmin}
-          />
+          {isAdmin ? (
+            <input
+              type="text"
+              className="content-row__input content-row__input--name"
+              value={localItem.name || ''}
+              onChange={(e) => handleInputChange('name', e.target.value)}
+              placeholder="Content name..."
+            />
+          ) : (
+            <span className="content-row__text content-row__text--name" title={localItem.name}>
+              {localItem.name || 'Untitled'}
+            </span>
+          )}
         </td>
 
         {/* Cell: Type */}
@@ -250,7 +272,7 @@ export default function ContentRow({
               ))}
             </select>
           ) : (
-            <span style={{ fontSize: 'var(--text-xs)', fontWeight: 600, color: 'var(--color-text)' }}>
+            <span className="content-row__type-pill">
               {CONTENT_TYPES.find(t => t.value === localItem.type)?.label || localItem.type}
             </span>
           )}
@@ -258,14 +280,19 @@ export default function ContentRow({
 
         {/* Cell: Summary */}
         <td className="content-row__cell content-row__cell--summary">
-          <input
-            type="text"
-            className="content-row__input content-row__input--summary"
-            value={localItem.summary || ''}
-            onChange={(e) => handleInputChange('summary', e.target.value)}
-            placeholder="Enter summary..."
-            readOnly={!isAdmin}
-          />
+          {isAdmin ? (
+            <input
+              type="text"
+              className="content-row__input content-row__input--summary"
+              value={localItem.summary || ''}
+              onChange={(e) => handleInputChange('summary', e.target.value)}
+              placeholder="Enter summary..."
+            />
+          ) : (
+            <span className="content-row__text content-row__text--summary" title={localItem.summary}>
+              {localItem.summary || '—'}
+            </span>
+          )}
         </td>
 
         {/* Cell: Expand Editor */}
@@ -273,7 +300,7 @@ export default function ContentRow({
           <button
             className={`content-row__btn-expand ${isExpanded ? 'content-row__btn-expand--active' : ''}`}
             onClick={onToggleExpand}
-            title={isExpanded ? 'Collapse Editor' : 'Expand Editor'}
+            title={isExpanded ? 'Collapse Details' : 'Expand Details'}
             type="button"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
@@ -287,7 +314,7 @@ export default function ContentRow({
           <button
             className={`content-row__btn-upload ${fileCount > 0 ? 'content-row__btn-upload--has-files' : ''}`}
             onClick={() => onEditItem(item)}
-            title={isViewer ? 'Click to view assets' : `${fileCount} files uploaded. Click to edit/upload.`}
+            title={isViewer ? 'Click to view assets' : isDesigner ? `${fileCount} files uploaded. Click to upload/edit designs.` : `${fileCount} files uploaded. Click to inspect/edit.`}
             type="button"
           >
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -320,21 +347,44 @@ export default function ContentRow({
           <div className="content-row__approval-group">
             <StatusBadge
               status={currentStatus}
-              onClick={handleStatusChange}
+              onClick={isAdmin ? handleStatusChange : undefined}
               onOpenRevision={handleViewFeedback}
               feedback={item.feedback}
               disabled={isViewer || isDesigner}
               size="small"
             />
 
-            {/* ADMIN ACTIONS: When content is uploaded/pending review */}
-            {isAdmin && currentStatus === 'pending' && (
+            {/* ADMIN ACTIONS: Written Content (Draft -> Ready -> Published) */}
+            {isAdmin && isWritten && currentStatus === 'draft' && (
+              <button
+                type="button"
+                className="content-row__quick-btn content-row__quick-btn--approve"
+                onClick={handleMarkReady}
+                title="Mark article/newsletter as Ready for publishing"
+              >
+                Mark Ready ✓
+              </button>
+            )}
+
+            {isAdmin && isWritten && currentStatus === 'ready' && (
+              <button
+                type="button"
+                className="content-row__quick-btn content-row__quick-btn--publish"
+                onClick={handlePublish}
+                title="Mark written content as Published"
+              >
+                Publish 🚀
+              </button>
+            )}
+
+            {/* ADMIN ACTIONS: Social Content */}
+            {isAdmin && !isWritten && currentStatus === 'pending' && (
               <>
                 <button
                   type="button"
                   className="content-row__quick-btn content-row__quick-btn--approve"
                   onClick={handleApprove}
-                  title="Approve creative (Ready to publish)"
+                  title="Approve design (Ready to publish)"
                 >
                   ✓ Approve
                 </button>
@@ -342,87 +392,96 @@ export default function ContentRow({
                   type="button"
                   className="content-row__quick-btn content-row__quick-btn--changes"
                   onClick={handleRequestRevision}
-                  title="Request changes with feedback notes"
+                  title="Rectify design & provide clarification to Designer"
                 >
-                  ✕ Changes
+                  ✎ Rectify / Changes
                 </button>
               </>
             )}
 
-            {/* ADMIN ACTIONS: Mark as Published */}
-            {isAdmin && currentStatus === 'ready' && (
+            {isAdmin && !isWritten && currentStatus === 'ready' && (
               <button
                 type="button"
-                className="content-row__quick-btn content-row__quick-btn--approve"
+                className="content-row__quick-btn content-row__quick-btn--publish"
                 onClick={handlePublish}
-                title="Mark as Published on Zoho Social"
+                title="Mark post as published (Scheduled/Live)"
               >
                 Publish 🚀
               </button>
             )}
 
-            {/* ADMIN ACTIONS: When status is 'revision' */}
-            {isAdmin && currentStatus === 'revision' && (
+            {isAdmin && !isWritten && currentStatus === 'revision' && (
               <>
+                <button
+                  type="button"
+                  className="content-row__quick-btn content-row__quick-btn--changes"
+                  onClick={handleRequestRevision}
+                  title="View or update clarification instructions"
+                >
+                  ✎ Clarification
+                </button>
                 <button
                   type="button"
                   className="content-row__quick-btn content-row__quick-btn--approve"
                   onClick={handleApprove}
-                  title="Approve creative directly (Ready to publish)"
+                  title="Approve design directly"
                 >
                   ✓ Approve
-                </button>
-                <button
-                  type="button"
-                  className="content-row__quick-btn content-row__quick-btn--changes"
-                  onClick={handleClearRevision}
-                  title="Remove 'Needs Changes' status and clear feedback"
-                >
-                  ✕ Remove
                 </button>
               </>
             )}
 
-            {/* DESIGNER ACTIONS: Send for Approval when in draft */}
-            {(isDesigner || (!isAdmin && !isViewer)) && currentStatus === 'draft' && (
+            {/* DESIGNER ACTIONS: Social Content Only */}
+            {isDesigner && !isWritten && currentStatus === 'draft' && (
               <button
                 type="button"
                 className="content-row__quick-btn content-row__quick-btn--send"
                 onClick={handleSendForApproval}
-                title="Send creative to Admin for approval"
+                title="Send design to Admin for approval"
               >
-                Send for Approval 🚀
+                Submit for Approval 🚀
               </button>
             )}
 
-            {/* DESIGNER ACTIONS: When status is Needs Changes */}
-            {(isDesigner || (!isAdmin && !isViewer)) && currentStatus === 'revision' && (
+            {isDesigner && !isWritten && currentStatus === 'revision' && (
+              <>
+                <button
+                  type="button"
+                  className="content-row__quick-btn content-row__quick-btn--changes"
+                  onClick={handleViewFeedback}
+                  title="View Admin's clarification and instructions"
+                >
+                  View Instructions 💬
+                </button>
+                <button
+                  type="button"
+                  className="content-row__quick-btn content-row__quick-btn--send"
+                  onClick={handleSendForApproval}
+                  title="Resubmit updated design for approval"
+                >
+                  Resubmit 🚀
+                </button>
+              </>
+            )}
+
+            {/* Row Delete Button (Admin Only) */}
+            {isAdmin && (
               <button
                 type="button"
-                className="content-row__quick-btn content-row__quick-btn--send"
-                onClick={handleSendForApproval}
-                title="Resubmit updated creative for approval"
+                className="content-row__delete-btn"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  e.preventDefault();
+                  onDelete(item.id);
+                }}
+                title="Delete this row"
               >
-                Resubmit 🚀
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="3 6 5 6 21 6" />
+                  <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+                </svg>
               </button>
             )}
-
-            {/* Row Delete Button */}
-            <button
-              type="button"
-              className="content-row__delete-btn"
-              onClick={(e) => {
-                e.stopPropagation();
-                e.preventDefault();
-                onDelete(item.id);
-              }}
-              title="Delete this row"
-            >
-              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <polyline points="3 6 5 6 21 6" />
-                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-              </svg>
-            </button>
           </div>
         </td>
       </tr>

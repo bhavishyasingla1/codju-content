@@ -20,14 +20,16 @@ export default function MonthNotifyModal({
   if (!isOpen) return null;
 
   const monthName = getMonthName(month);
-  const monthItems = content.filter((item) => {
-    const monthStr = `${year}-${String(month).padStart(2, '0')}`;
-    return item.date && item.date.startsWith(monthStr);
+  const monthStr = `${year}-${String(month).padStart(2, '0')}`;
+
+  // Only social content requires designer work (written content is admin-only)
+  const socialItems = content.filter((item) => {
+    return (item.category || 'social') === 'social' && item.date && item.date.startsWith(monthStr);
   });
 
   const handleSend = async () => {
     if (!designerEmail) {
-      setError('Designer email is not configured. Please configure it in Settings first.');
+      setError('Designer email is not configured. Please add the Designer Email in Settings.');
       return;
     }
 
@@ -40,7 +42,8 @@ export default function MonthNotifyModal({
         year,
         month,
         monthName,
-        items: monthItems.map((item) => ({
+        items: socialItems.map((item) => ({
+          id: item.id,
           date: item.date,
           name: item.name,
           platform: item.platform,
@@ -50,7 +53,8 @@ export default function MonthNotifyModal({
         customNote: customNote.trim(),
       });
 
-      onSuccess?.(res.message || `Notification sent to Designer (${designerEmail})!`);
+      const monthSignature = socialItems.map((item) => item.id).sort().join(',');
+      onSuccess?.(res.message || `Month brief sent to Designer (${designerEmail})!`, monthSignature);
       onClose();
     } catch (err) {
       setError(err.message || 'Failed to send notification to designer');
@@ -74,10 +78,10 @@ export default function MonthNotifyModal({
           </div>
           <div>
             <h3 className="month-notify-modal__title">
-              Notify Designer for {monthName} {year}
+              Send {monthName} {year} Brief to Designer
             </h3>
             <p className="month-notify-modal__subtitle">
-              Send an email that all work has been uploaded and design work can begin
+              Notifies your designer that the social schedule is ready so they can begin design work
             </p>
           </div>
           <button className="month-notify-modal__close" onClick={onClose} type="button" aria-label="Close">
@@ -96,14 +100,14 @@ export default function MonthNotifyModal({
             </div>
           )}
 
-          {/* Recipient card */}
+          {/* Recipient */}
           <div className="month-notify-modal__recipient-card">
             <div>
               <span className="month-notify-modal__label">Recipient (Designer):</span>
               <span className="month-notify-modal__email">
                 {designerEmail || (
                   <span style={{ color: '#ea580c', fontWeight: 'bold' }}>
-                    No Designer Email configured yet!
+                    No Designer Email configured!
                   </span>
                 )}
               </span>
@@ -122,36 +126,16 @@ export default function MonthNotifyModal({
             )}
           </div>
 
-          {/* Month Summary stats */}
-          <div className="month-notify-modal__stats">
-            <div className="month-notify-modal__stat-item">
-              <span className="month-notify-modal__stat-num">{monthItems.length}</span>
-              <span className="month-notify-modal__stat-label">Planned Posts</span>
-            </div>
-            <div className="month-notify-modal__stat-item">
-              <span className="month-notify-modal__stat-num">
-                {monthItems.filter(i => (i.category || 'social') === 'social').length}
-              </span>
-              <span className="month-notify-modal__stat-label">Social Graphics</span>
-            </div>
-            <div className="month-notify-modal__stat-item">
-              <span className="month-notify-modal__stat-num">
-                {monthItems.filter(i => i.category === 'written').length}
-              </span>
-              <span className="month-notify-modal__stat-label">Written / Blogs</span>
-            </div>
-          </div>
-
-          {/* Planned Items list */}
+          {/* Planned Deliverables */}
           <div className="month-notify-modal__preview-box">
             <h4 className="month-notify-modal__preview-title">
-              Items included in email brief:
+              {socialItems.length} Deliverables for {monthName} {year}:
             </h4>
             <div className="month-notify-modal__items-list">
-              {monthItems.length === 0 ? (
-                <p className="month-notify-modal__empty">No items scheduled for this month yet.</p>
+              {socialItems.length === 0 ? (
+                <p className="month-notify-modal__empty">No social pieces scheduled for this month.</p>
               ) : (
-                monthItems.slice(0, 6).map((item, idx) => (
+                socialItems.slice(0, 6).map((item, idx) => (
                   <div key={item.id || idx} className="month-notify-modal__item-row">
                     <span className="month-notify-modal__item-date">{item.date}</span>
                     <span className="month-notify-modal__item-name">{item.name}</span>
@@ -159,25 +143,25 @@ export default function MonthNotifyModal({
                   </div>
                 ))
               )}
-              {monthItems.length > 6 && (
+              {socialItems.length > 6 && (
                 <div className="month-notify-modal__more">
-                  + {monthItems.length - 6} more content items
+                  + {socialItems.length - 6} more deliverables
                 </div>
               )}
             </div>
           </div>
 
-          {/* Custom Note input */}
+          {/* Custom Note */}
           <div className="month-notify-modal__field">
             <label className="month-notify-modal__label">
-              Add Custom Note or Design Guidelines (Optional)
+              Guidelines / Note for Designer (Optional)
             </label>
             <textarea
               className="month-notify-modal__textarea"
               value={customNote}
               onChange={(e) => setCustomNote(e.target.value)}
-              placeholder="e.g. Please focus on vibrant summer color palettes for the carousels this month. High priority items are scheduled for the 1st and 15th."
-              rows={3}
+              placeholder="e.g. Please prioritize the first 3 carousels and keep colors aligned with summer branding."
+              rows={2}
             />
           </div>
         </div>
@@ -195,9 +179,9 @@ export default function MonthNotifyModal({
             type="button"
             className="month-notify-modal__btn month-notify-modal__btn--primary"
             onClick={handleSend}
-            disabled={sending || !designerEmail || monthItems.length === 0}
+            disabled={sending || !designerEmail || socialItems.length === 0}
           >
-            {sending ? 'Sending Notification...' : `Send Email to Designer 🚀`}
+            {sending ? 'Sending...' : 'Send Email to Designer 🚀'}
           </button>
         </div>
       </div>

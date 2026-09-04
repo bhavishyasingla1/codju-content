@@ -13,15 +13,18 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
   const { isViewer, isDesigner, isAdmin, openPinModal } = useAuth();
   const [formData, setFormData] = useState({ ...item });
 
+  const isWritten = (formData.category || item.category) === 'written';
+  const canEdit = isWritten ? isAdmin : !isViewer;
+
   const saveFunction = useCallback(async () => {
-    if (isViewer) return;
+    if (!canEdit) return;
     await onUpdate(item.id, formData);
-  }, [item.id, formData, onUpdate, isViewer]);
+  }, [item.id, formData, onUpdate, canEdit]);
 
   const { saveStatus, triggerSave, forceSave } = useAutoSave(saveFunction, 3000);
 
   const handleChange = (field, value) => {
-    if (isViewer) {
+    if (!canEdit) {
       openPinModal();
       return;
     }
@@ -43,19 +46,26 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
       openPinModal();
       return;
     }
-    setFormData(prev => ({ ...prev, status: newStatus }));
-    onUpdate(item.id, { ...formData, status: newStatus });
+    const order = isWritten
+      ? ['draft', 'ready', 'published']
+      : ['draft', 'pending', 'revision', 'ready', 'published'];
+    const currentIdx = order.indexOf(formData.status);
+    const nextStatus = typeof newStatus === 'string' && order.includes(newStatus)
+      ? newStatus
+      : order[(currentIdx + 1) % order.length];
+    setFormData(prev => ({ ...prev, status: nextStatus }));
+    onUpdate(item.id, { ...formData, status: nextStatus });
   };
 
   const handleUpload = async (file) => {
-    if (isViewer) {
+    if (!canEdit) {
       openPinModal();
       return;
     }
     const asset = await uploadAsset(file);
     setFormData(prev => {
       const nextAssets = [...(prev.assets || []), asset];
-      const nextStatus = prev.status === 'draft' ? 'pending' : prev.status;
+      const nextStatus = (!isWritten && prev.status === 'draft') ? 'pending' : prev.status;
       const updated = { ...prev, assets: nextAssets, status: nextStatus };
       onUpdate(item.id, updated);
       return updated;
@@ -63,7 +73,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
   };
 
   const handleSendForApproval = () => {
-    if (isViewer) {
+    if (!canEdit || isWritten) {
       openPinModal();
       return;
     }
@@ -77,14 +87,14 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
   };
 
   const handleRemoveAsset = (assetId) => {
-    if (isViewer) {
+    if (!canEdit) {
       openPinModal();
       return;
     }
     setFormData(prev => {
       const nextAssets = prev.assets.filter((a, idx) => (a.id || idx) !== assetId);
       const hasAnyMedia = nextAssets.length > 0 || !!prev.pdfAsset || !!prev.thumbnailAsset;
-      const nextStatus = (!hasAnyMedia && prev.status === 'pending') ? 'draft' : prev.status;
+      const nextStatus = (!isWritten && !hasAnyMedia && prev.status === 'pending') ? 'draft' : prev.status;
       const updated = { ...prev, assets: nextAssets, status: nextStatus };
       onUpdate(item.id, updated);
       return updated;
@@ -104,6 +114,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
                 onChange={(e) => handleChange('caption', e.target.value)}
                 placeholder="Write your caption..."
                 rows={4}
+                readOnly={isViewer}
               />
             </div>
             <UploadZone
@@ -113,6 +124,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
               onRemove={handleRemoveAsset}
               onPreview={(asset, idx) => onPreview({ asset, assets: formData.assets || [asset], initialIndex: idx ?? 0, caption: formData.caption })}
               accept="image/*,video/*,application/pdf,.pdf"
+              readOnly={isViewer}
             />
           </>
         );
@@ -128,6 +140,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
                 onChange={(e) => handleChange('caption', e.target.value)}
                 placeholder="Write your caption..."
                 rows={4}
+                readOnly={isViewer}
               />
             </div>
             <UploadZone
@@ -141,6 +154,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
               }}
               multiple
               accept="image/*"
+              readOnly={isViewer}
             />
             <UploadZone
               label="Upload Carousel PDF Document"
@@ -165,6 +179,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
               }}
               onPreview={(asset) => onPreview({ asset, assets: [asset], initialIndex: 0, caption: formData.caption })}
               accept="application/pdf,.pdf"
+              readOnly={isViewer}
             />
           </>
         );
@@ -183,6 +198,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
                 placeholder="Write your full article, blog post, or newsletter draft..."
                 showCopyButton
                 showCharCount
+                readOnly={isViewer}
               />
             </div>
             <div className="editor__field">
@@ -193,6 +209,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
                 onChange={(e) => handleChange('caption', e.target.value)}
                 placeholder="Short hook, meta summary, or social share copy..."
                 rows={3}
+                readOnly={isViewer}
               />
             </div>
             <UploadZone
@@ -203,6 +220,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
               onPreview={(asset, idx) => onPreview({ asset, assets: formData.assets || [asset], initialIndex: idx ?? 0, caption: formData.caption })}
               multiple
               accept="image/*"
+              readOnly={isViewer}
             />
             <UploadZone
               label="Attach PDF Document / Draft Brief"
@@ -222,6 +240,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
               }}
               onPreview={(asset) => onPreview({ asset, assets: [asset], initialIndex: 0, caption: formData.caption })}
               accept="application/pdf,.pdf"
+              readOnly={isViewer}
             />
           </>
         );
@@ -237,6 +256,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
                 placeholder="Start writing your post..."
                 showCopyButton
                 showCharCount
+                readOnly={!canEdit}
               />
             </div>
           </>
@@ -253,7 +273,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
     <div className="editor animate-fade-in-up">
       <div className="editor__header">
         <div className="editor__header-left">
-          <h3 className="editor__title">Edit Content</h3>
+          <h3 className="editor__title">{!canEdit ? 'View Content' : 'Edit Content'}</h3>
           <StatusBadge
             status={formData.status}
             onClick={isAdmin ? handleStatusChange : undefined}
@@ -263,16 +283,16 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
           />
         </div>
         <div className="editor__header-right">
-          {!isViewer && saveStatus !== 'idle' && (
+          {canEdit && saveStatus !== 'idle' && (
             <span className={`editor__auto-save editor__auto-save--${saveStatus}`}>
               {saveStatus === 'saving' && 'Auto-saving...'}
               {saveStatus === 'saved' && 'Auto-saved ✓'}
             </span>
           )}
-          {!isViewer && <SaveButton onSave={forceSave} saveStatus={saveStatus} />}
+          {canEdit && <SaveButton onSave={forceSave} saveStatus={saveStatus} />}
 
-          {/* Designer Action: Send for Approval */}
-          {(isDesigner || (!isAdmin && !isViewer)) && (formData.status === 'draft' || formData.status === 'revision') && (
+          {/* Designer Action: Send for Approval (Social Only) */}
+          {!isWritten && (isDesigner || (!isAdmin && !isViewer)) && (formData.status === 'draft' || formData.status === 'revision') && (
             <button
               type="button"
               className="editor__send-btn"
@@ -283,8 +303,38 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
             </button>
           )}
 
-          {/* Admin Action: Approve / Request Changes when pending review */}
-          {isAdmin && formData.status === 'pending' && (
+          {/* Admin Action for Written Content: Mark Ready / Publish */}
+          {isAdmin && isWritten && formData.status === 'draft' && (
+            <button
+              type="button"
+              className="editor__quick-action-btn editor__quick-action-btn--approve"
+              onClick={() => {
+                const updated = { ...formData, status: 'ready' };
+                setFormData(updated);
+                onUpdate(item.id, updated);
+              }}
+              title="Mark written piece as Ready"
+            >
+              Mark Ready ✓
+            </button>
+          )}
+          {isAdmin && isWritten && formData.status === 'ready' && (
+            <button
+              type="button"
+              className="editor__quick-action-btn editor__quick-action-btn--publish"
+              onClick={() => {
+                const updated = { ...formData, status: 'published' };
+                setFormData(updated);
+                onUpdate(item.id, updated);
+              }}
+              title="Publish written piece"
+            >
+              Publish 🚀
+            </button>
+          )}
+
+          {/* Admin Action for Social: Approve / Request Changes when pending review */}
+          {isAdmin && !isWritten && formData.status === 'pending' && (
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
               <button
                 type="button"
@@ -309,22 +359,24 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
             </div>
           )}
 
-          <button
-            className="editor__delete-btn"
-            onClick={(e) => {
-              e.stopPropagation();
-              e.preventDefault();
-              onDelete(item.id);
-              onClose?.();
-            }}
-            title="Delete Content Piece"
-            type="button"
-          >
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-              <polyline points="3 6 5 6 21 6" />
-              <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
-            </svg>
-          </button>
+          {isAdmin && (
+            <button
+              className="editor__delete-btn"
+              onClick={(e) => {
+                e.stopPropagation();
+                e.preventDefault();
+                onDelete(item.id);
+                onClose?.();
+              }}
+              title="Delete Content Piece"
+              type="button"
+            >
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                <polyline points="3 6 5 6 21 6" />
+                <path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" />
+              </svg>
+            </button>
+          )}
           {onClose && (
             <button className="editor__close-btn" onClick={onClose} title="Close / Collapse" type="button">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
