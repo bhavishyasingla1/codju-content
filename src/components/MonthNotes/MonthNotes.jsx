@@ -315,17 +315,49 @@ export default function MonthNotes({ year, month, category = 'social' }) {
       addedAt: new Date().toISOString(),
     };
 
-    setLinks(prev => [...prev, newLink]);
+    const nextLinks = [...links, newLink];
+    setLinks(nextLinks);
     setIsAddingLink(false);
     setNewTitle('');
     setNewUrl('');
     setUrlError('');
-    triggerSave();
+
+    isTypingRef.current = true;
+    clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      isTypingRef.current = false;
+    }, 4000);
+
+    const payload = JSON.stringify({ links: nextLinks, notes });
+    persistNotesCache(payload);
+    saveNotesByMonth(year, month, payload, category).catch(err => {
+      console.warn('Error saving added link:', err);
+    });
   };
 
-  const handleDeleteLink = (id) => {
-    setLinks(prev => prev.filter(link => link.id !== id));
-    triggerSave();
+  const handleDeleteLink = async (e, id) => {
+    e?.preventDefault();
+    e?.stopPropagation();
+    if (!isAdmin) {
+      openPinModal();
+      return;
+    }
+    const nextLinks = links.filter(link => link.id !== id);
+    setLinks(nextLinks);
+
+    isTypingRef.current = true;
+    clearTimeout(typingTimerRef.current);
+    typingTimerRef.current = setTimeout(() => {
+      isTypingRef.current = false;
+    }, 4000);
+
+    const payload = JSON.stringify({ links: nextLinks, notes });
+    persistNotesCache(payload);
+    try {
+      await saveNotesByMonth(year, month, payload, category);
+    } catch (err) {
+      console.warn('Error saving deleted link:', err);
+    }
   };
 
   const handleCopyLink = (link) => {
@@ -568,7 +600,7 @@ export default function MonthNotes({ year, month, category = 'social' }) {
                             {isAdmin && (
                               <button
                                 className="month-notes__icon-btn month-notes__icon-btn--delete"
-                                onClick={() => handleDeleteLink(link.id)}
+                                onClick={(e) => handleDeleteLink(e, link.id)}
                                 title="Delete link"
                                 type="button"
                               >

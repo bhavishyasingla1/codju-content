@@ -875,13 +875,15 @@ export function viteApiPlugin() {
                   </div>`;
                 break;
 
-              case 'month_ready':
+              case 'month_ready': {
                 recipient = designerEmail;
                 if (!recipient) {
                   res.statusCode = 400;
                   res.end(JSON.stringify({ error: 'Designer email is not configured. Please add the Designer Email in Settings.' }));
                   return;
                 }
+                const origin = (req.headers['x-forwarded-proto'] || 'http') + '://' + (req.headers.host || 'localhost:5174');
+                const targetUrl = `${origin}/?year=${body.year}&month=${body.month}&category=social`;
                 subject = `Content calendar ready: ${body.monthName || ''} ${body.year || ''} (${body.items?.length || 0} posts)`;
                 html = `
                   <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px;">
@@ -892,25 +894,35 @@ export function viteApiPlugin() {
                       <strong style="font-size: 11px; text-transform: uppercase; color: #374151;">Admin Note:</strong>
                       <p style="margin: 4px 0 0 0; font-size: 13px; color: #1f2937;">${body.customNote}</p>
                     </div>` : ''}
+                    <div style="margin: 20px 0;">
+                      <a href="${targetUrl}" style="display: inline-block; padding: 10px 20px; background: #6b21d8; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px;">Open ${body.monthName || ''} Calendar</a>
+                    </div>
                     <p style="font-size: 13px; color: #6b7280;">Please open the calendar dashboard to view all briefs and start designing.</p>
                   </div>`;
                 break;
+              }
 
-              case 'designer_month_ready':
+              case 'designer_month_ready': {
                 recipient = adminEmail;
                 if (!recipient) {
                   res.statusCode = 400;
                   res.end(JSON.stringify({ error: 'Admin email is not configured. Please add the Admin Email in Settings.' }));
                   return;
                 }
+                const origin = (req.headers['x-forwarded-proto'] || 'http') + '://' + (req.headers.host || 'localhost:5174');
+                const targetUrl = `${origin}/?year=${body.year}&month=${body.month}&category=social`;
                 subject = `All designs ready: ${body.monthName || ''} ${body.year || ''} (${body.items?.length || 0} posts) by Designer`;
                 html = `
                   <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 560px; margin: 0 auto; padding: 24px; border: 1px solid #e5e7eb; border-radius: 8px;">
                     <h2 style="font-size: 18px; margin: 0 0 14px 0; color: #111827;">All designs ready for ${body.monthName || ''} ${body.year || ''}</h2>
                     <p style="font-size: 14px; color: #374151;">Hello Admin, the Designer has completed the designs for <strong>${body.monthName || ''} ${body.year || ''}</strong> (${body.items?.length || 0} pieces total). You can check and review each design now.</p>
+                    <div style="margin: 20px 0;">
+                      <a href="${targetUrl}" style="display: inline-block; padding: 10px 20px; background: #6b21d8; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: 600; font-size: 14px;">Review ${body.monthName || ''} Designs</a>
+                    </div>
                     <p style="font-size: 13px; color: #6b7280;">Open the calendar to approve designs or request changes with clarification notes.</p>
                   </div>`;
                 break;
+              }
 
               case 'test':
                 recipient = body.recipient || adminEmail;

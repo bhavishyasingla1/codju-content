@@ -1581,11 +1581,11 @@ function buildDailyUploadEmail({ items = [], date, appUrl }) {
   };
 }
 
-function buildDesignerMonthReadyEmail({ _month, year, monthName, items = [], appUrl }) {
+function buildDesignerMonthReadyEmail({ month, year, monthName, items = [], appUrl }) {
   const count = items.length;
   const title = `All designs ready for ${monthName} ${year}`;
   const categoryLabel = `Review Needed`;
-  const monthUrl = `${(appUrl || '').replace(/\/+$/, '')}/?year=${year}&month=${_month}&category=social`;
+  const monthUrl = `${(appUrl || '').replace(/\/+$/, '')}/?year=${year}&month=${month}&category=social`;
 
   const rowsHtml = items.slice(0, 15).map((item, i) => `
     <tr style="border-bottom: 1px solid #f3f4f6;">
@@ -1635,10 +1635,10 @@ function buildDesignerMonthReadyEmail({ _month, year, monthName, items = [], app
   };
 }
 
-function buildMonthReadyEmail({ _month, year, monthName, items = [], customNote = '', appUrl }) {
+function buildMonthReadyEmail({ month, year, monthName, items = [], customNote = '', appUrl }) {
   const title = `Content schedule ready: ${monthName} ${year}`;
   const categoryLabel = `Monthly Brief`;
-  const monthUrl = `${(appUrl || '').replace(/\/+$/, '')}/?year=${year}&month=${_month}&category=social`;
+  const monthUrl = `${(appUrl || '').replace(/\/+$/, '')}/?year=${year}&month=${month}&category=social`;
 
   const topItemsHtml = items.slice(0, 15).map((item) => `
     <tr style="border-bottom: 1px solid #f3f4f6;">

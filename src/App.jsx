@@ -30,12 +30,32 @@ const AiModal = lazy(() => import('./components/AiModal/AiModal'));
 function MainApp() {
   const { isAdmin, isDesigner, isViewer, isPinModalOpen, closePinModal, openPinModal } = useAuth();
 
-  // Always default to the current active month and year
-  const currentDate = useMemo(() => new Date(), []);
-  const [year, setYear] = useState(() => currentDate.getFullYear());
-  const [month, setMonth] = useState(() => currentDate.getMonth() + 1);
+  // Initialize year, month, and category from URL query parameters if present (e.g. from email links), otherwise default to current active month/year
+  const [year, setYear] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const y = parseInt(params.get('year'), 10);
+      if (y >= 2020 && y <= 2040) return y;
+    }
+    return new Date().getFullYear();
+  });
+  const [month, setMonth] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const m = parseInt(params.get('month'), 10);
+      if (m >= 1 && m <= 12) return m;
+    }
+    return new Date().getMonth() + 1;
+  });
+  const [activeCategory, setActiveCategory] = useState(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search);
+      const cat = params.get('category');
+      if (cat === 'social' || cat === 'written') return cat;
+    }
+    return 'social';
+  });
   const [view, setView] = useState('list'); // 'list' | 'grid' | 'calendar'
-  const [activeCategory, setActiveCategory] = useState('social'); // 'social' | 'written'
   const [statusFilter, setStatusFilter] = useState('all');
 
   // Service CRUD Hook with Undo / Redo
@@ -183,11 +203,13 @@ function MainApp() {
     if (targetCategory && (targetCategory === 'social' || targetCategory === 'written')) {
       setActiveCategory(targetCategory);
     }
-    if (targetYear && !isNaN(Number(targetYear))) {
-      setYear(Number(targetYear));
+    if (targetYear) {
+      const y = parseInt(targetYear, 10);
+      if (y >= 2020 && y <= 2040) setYear(y);
     }
-    if (targetMonth && !isNaN(Number(targetMonth))) {
-      setMonth(Number(targetMonth));
+    if (targetMonth) {
+      const m = parseInt(targetMonth, 10);
+      if (m >= 1 && m <= 12) setMonth(m);
     }
 
     if (targetItem) {
@@ -671,39 +693,6 @@ function MainApp() {
                   </button>
                 )}
 
-                {/* Undo & Redo Buttons */}
-                <div className="app-main__history-group" role="group" aria-label="Undo and Redo">
-                  <button
-                    type="button"
-                    className="app-main__history-btn"
-                    disabled={!canUndo}
-                    onClick={undo}
-                    title={canUndo ? `Undo: ${lastUndoAction?.description || 'Last action'} (⌘Z)` : 'Nothing to undo (⌘Z)'}
-                    aria-label="Undo last action"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="1 4 1 10 7 10" />
-                      <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
-                    </svg>
-                    <span>Undo</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    className="app-main__history-btn"
-                    disabled={!canRedo}
-                    onClick={redo}
-                    title={canRedo ? `Redo: ${lastRedoAction?.description || 'Last undone action'} (⌘⇧Z)` : 'Nothing to redo (⌘⇧Z)'}
-                    aria-label="Redo last undone action"
-                  >
-                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
-                      <polyline points="23 4 23 10 17 10" />
-                      <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
-                    </svg>
-                    <span>Redo</span>
-                  </button>
-                </div>
-
                 <button
                   className="app-main__ai-btn"
                   onClick={() => setIsAiModalOpen(true)}
@@ -716,6 +705,41 @@ function MainApp() {
                   <span>Generate Table</span>
                 </button>
               </>
+            )}
+
+            {/* Undo & Redo Buttons for both Admin and Designer */}
+            {(isAdmin || isDesigner) && (
+              <div className="app-main__history-group" role="group" aria-label="Undo and Redo">
+                <button
+                  type="button"
+                  className="app-main__history-btn"
+                  disabled={!canUndo}
+                  onClick={undo}
+                  title={canUndo ? `Undo: ${lastUndoAction?.description || 'Last action'} (⌘Z)` : 'Nothing to undo (⌘Z)'}
+                  aria-label="Undo last action"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="1 4 1 10 7 10" />
+                    <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                  </svg>
+                  <span>Undo</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="app-main__history-btn"
+                  disabled={!canRedo}
+                  onClick={redo}
+                  title={canRedo ? `Redo: ${lastRedoAction?.description || 'Last undone action'} (⌘⇧Z)` : 'Nothing to redo (⌘⇧Z)'}
+                  aria-label="Redo last undone action"
+                >
+                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <polyline points="23 4 23 10 17 10" />
+                    <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+                  </svg>
+                  <span>Redo</span>
+                </button>
+              </div>
             )}
 
             {/* DESIGNER ACTIONS: Only active on Social Content */}

@@ -13,24 +13,24 @@
 }
 
 .calendar-grid__week-header {
-  padding: 10px;
+  padding: 8px 6px;
   text-align: center;
   font-family: var(--font-heading);
-  font-size: var(--text-xs);
-  font-weight: 600;
+  font-size: 11.5px;
+  font-weight: 700;
   color: var(--color-text-secondary);
   background: var(--color-bg);
   border-bottom: 1.5px solid var(--color-border);
 }
 
 .calendar-grid__cell {
-  min-height: 100px;
+  min-height: 72px;
   border-right: 1px solid var(--color-border);
   border-bottom: 1px solid var(--color-border);
-  padding: 6px;
+  padding: 4px 6px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4px;
   position: relative;
   transition: background-color var(--transition-fast);
 }
@@ -62,8 +62,6 @@
   color: var(--color-text-secondary);
 }
 
-
-
 .calendar-grid__day-header {
   display: flex;
   align-items: center;
@@ -72,8 +70,8 @@
 }
 
 .calendar-grid__day-number {
-  font-size: var(--text-xs);
-  font-weight: 500;
+  font-size: 11px;
+  font-weight: 600;
   color: var(--color-text-secondary);
 }
 
@@ -81,8 +79,8 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-text-muted);
@@ -104,17 +102,17 @@
 .calendar-grid__items {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
   flex: 1;
   overflow-y: auto;
-  max-height: 80px;
+  max-height: 52px;
 }
 
 .calendar-grid__item {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 6px;
+  padding: 2.5px 5px;
   border-radius: var(--radius-sm);
   border: 1px solid var(--color-border);
   width: 100%;
@@ -124,13 +122,13 @@
 }
 
 .calendar-grid__item:hover {
-  transform: translateY(-2px);
+  transform: translateY(-1px);
   box-shadow: var(--shadow-xs);
   filter: brightness(0.97);
 }
 
 .calendar-grid__item-title {
-  font-size: 0.6875rem;
+  font-size: 11px;
   font-weight: 600;
   color: var(--color-text);
   white-space: nowrap;
@@ -171,7 +169,7 @@
   }
 
   .calendar-grid__cell {
-    min-height: 80px;
+    min-height: 72px;
     padding: 4px;
   }
 
@@ -180,4 +178,15 @@
     font-size: 11px;
   }
 }
+
+@media (min-height: 900px) and (min-width: 1024px) {
+  .calendar-grid__cell {
+    min-height: 88px;
+  }
+
+  .calendar-grid__items {
+    max-height: 68px;
+  }
+}
+
 
