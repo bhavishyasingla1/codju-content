@@ -1,4 +1,4 @@
-import { supabase } from './db.js';
+import { queryD1 } from './db.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -17,22 +17,13 @@ export default async function handler(req, res) {
     }
 
     try {
-      let { data, error } = await supabase
-        .from('month_notes')
-        .select('*')
-        .eq('month_key', monthQuery)
-        .maybeSingle();
-
-      if (error) throw error;
+      let rows = await queryD1('SELECT * FROM month_notes WHERE month_key = ?', [monthQuery]);
+      let data = rows[0] || null;
 
       if (!data && monthQuery.length > 7) {
         const baseMonth = monthQuery.substring(0, 7);
-        const resBase = await supabase
-          .from('month_notes')
-          .select('*')
-          .eq('month_key', baseMonth)
-          .maybeSingle();
-        data = resBase.data;
+        rows = await queryD1('SELECT * FROM month_notes WHERE month_key = ?', [baseMonth]);
+        data = rows[0] || null;
       }
 
       if (!data) {
@@ -55,17 +46,15 @@ export default async function handler(req, res) {
         return res.status(400).json({ error: 'Missing month parameter' });
       }
 
-      const { data, error } = await supabase
-        .from('month_notes')
-        .upsert(
-          { month_key: month, notes: notes || '', updated_at: new Date().toISOString() },
-          { onConflict: 'month_key' }
-        )
-        .select()
-        .single();
+      const now = new Date().toISOString();
+      await queryD1(`
+        INSERT INTO month_notes (month_key, notes, updated_at)
+        VALUES (?, ?, ?)
+        ON CONFLICT(month_key) DO UPDATE SET notes = excluded.notes, updated_at = excluded.updated_at;
+      `, [month, notes || '', now]);
 
-      if (error) throw error;
-      return res.status(200).json(data);
+      const rows = await queryD1('SELECT * FROM month_notes WHERE month_key = ?', [month]);
+      return res.status(200).json(rows[0] || { month_key: month, notes: notes || '' });
     } catch (err) {
       console.error('Error saving month notes:', err);
       return res.status(500).json({ error: err.message });

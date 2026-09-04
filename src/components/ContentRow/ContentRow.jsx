@@ -21,6 +21,7 @@ export default function ContentRow({
   isDragging,
   isSelected,
   onSelectChange,
+  onSendForApproval,
 }) {
   const { isViewer, isDesigner, isAdmin, openPinModal } = useAuth();
   const [localItem, setLocalItem] = useState(item);
@@ -109,9 +110,13 @@ export default function ContentRow({
       openPinModal();
       return;
     }
-    onUpdate(item.id, {
-      status: 'pending',
-    });
+    if (onSendForApproval) {
+      onSendForApproval(item);
+    } else {
+      onUpdate(item.id, {
+        status: 'pending',
+      });
+    }
   };
 
   const fileCount = (item.assets?.length || 0) + (item.pdfAsset ? 1 : 0);
@@ -433,6 +438,7 @@ export default function ContentRow({
                 onPreview={onPreview}
                 onClose={handleClose}
                 onOpenRevision={() => onOpenRevision?.(item)}
+                onSendForApproval={onSendForApproval}
                 showSummary={true}
               />
             </div>

@@ -104,17 +104,18 @@
 }
 
 .preview-modal__action-btn--primary {
-  background: linear-gradient(135deg, #6B21D8 0%, #8B5CF6 100%);
-  border: none;
+  background: var(--color-primary);
+  border: 1px solid var(--color-primary);
   color: #FFFFFF;
-  box-shadow: 0 4px 14px rgba(107, 33, 216, 0.35);
+  box-shadow: 0 1px 3px rgba(107, 33, 216, 0.2);
 }
 
 .preview-modal__action-btn--primary:hover {
-  background: linear-gradient(135deg, #581C87 0%, #7C3AED 100%);
+  background: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
   color: #FFFFFF;
   transform: translateY(-1px);
-  box-shadow: 0 6px 18px rgba(107, 33, 216, 0.45);
+  box-shadow: 0 3px 8px rgba(107, 33, 216, 0.28);
 }
 
 .preview-modal__action-btn--success {

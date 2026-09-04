@@ -12,6 +12,7 @@ export default function ListView({
   onCreateNew,
   onEditItem,
   onOpenRevision,
+  onSendForApproval,
   year,
   month,
 }) {
@@ -181,6 +182,7 @@ export default function ListView({
                 onPreview={onPreview}
                 onEditItem={onEditItem}
                 onOpenRevision={onOpenRevision}
+                onSendForApproval={onSendForApproval}
                 onDragStart={handleDragStart}
                 onDragOver={handleDragOver}
                 onDragEnd={handleDragEnd}

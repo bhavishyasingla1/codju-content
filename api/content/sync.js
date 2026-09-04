@@ -1,4 +1,4 @@
-import { supabase, mapToFrontend } from '../db.js';
+import { queryD1, mapToFrontend } from '../db.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -20,17 +20,17 @@ export default async function handler(req, res) {
   const clientCount = req.query.count ? parseInt(req.query.count, 10) : null;
 
   try {
-    let q = supabase.from('content').select('*');
+    let sql = 'SELECT * FROM content';
+    const params = [];
     if (monthQuery) {
-      q = q.like('date', `${monthQuery}%`);
+      sql += ' WHERE date LIKE ?';
+      params.push(`${monthQuery}%`);
     }
-    q = q.order('date', { ascending: true });
+    sql += ' ORDER BY date ASC;';
 
-    const { data, error } = await q;
-    if (error) throw error;
+    const rows = await queryD1(sql, params);
+    const items = (rows || []).map(mapToFrontend);
 
-    const items = (data || []).map(mapToFrontend);
-    
     let latest = null;
     if (items.length > 0) {
       const timestamps = items

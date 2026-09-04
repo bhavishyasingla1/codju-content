@@ -1,4 +1,4 @@
-import { useState, useMemo, lazy, Suspense } from 'react';
+import { useState, useEffect, useMemo, lazy, Suspense } from 'react';
 import { useContent } from './hooks/useContent';
 import { useSearch } from './hooks/useSearch';
 import TopNav from './components/TopNav/TopNav';
@@ -11,9 +11,14 @@ import PinModal from './components/PinModal/PinModal';
 import Footer from './components/Footer/Footer';
 import ContentEditor from './components/ContentEditor/ContentEditor';
 import MonthNotes from './components/MonthNotes/MonthNotes';
+import UndoToast from './components/UndoToast/UndoToast';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { getMonthName } from './utils/helpers';
 import ErrorBoundary from './components/ErrorBoundary';
+import SettingsModal from './components/SettingsModal/SettingsModal';
+import MonthNotifyModal from './components/MonthNotifyModal/MonthNotifyModal';
+import NotificationToast from './components/NotificationToast/NotificationToast';
+import { fetchSettings, sendNotification } from './services/notificationService';
 import './App.css';
 
 const PreviewModal = lazy(() => import('./components/PreviewModal/PreviewModal'));
@@ -30,7 +35,7 @@ function MainApp() {
   const [view, setView] = useState('list'); // 'list' | 'grid' | 'calendar'
   const [activeCategory, setActiveCategory] = useState('social'); // 'social' | 'written'
 
-  // Service CRUD Hook
+  // Service CRUD Hook with Undo / Redo
   const {
     content,
     loading,
@@ -40,6 +45,14 @@ function MainApp() {
     updateContentItem,
     removeContent,
     refreshContent,
+    canUndo,
+    canRedo,
+    undo,
+    redo,
+    undoToast,
+    dismissUndoToast,
+    lastUndoAction,
+    lastRedoAction,
   } = useContent(year, month);
 
   // Filter content by current active category (Social vs Written)
@@ -68,6 +81,29 @@ function MainApp() {
   const [editingItem, setEditingItem] = useState(null);
   const [revisionItem, setRevisionItem] = useState(null);
   const [isAiModalOpen, setIsAiModalOpen] = useState(false);
+  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
+  const [isMonthNotifyOpen, setIsMonthNotifyOpen] = useState(false);
+  const [notifToast, setNotifToast] = useState(null);
+  const [appSettings, setAppSettings] = useState({
+    adminEmail: 'bhavishyasingla2005@gmail.com',
+    designerEmail: '',
+  });
+
+  // Load app notification settings
+  useEffect(() => {
+    fetchSettings()
+      .then(setAppSettings)
+      .catch((err) => console.warn('Could not load settings:', err));
+  }, []);
+
+  const showToast = (message, isError = false, title = null) => {
+    setNotifToast({
+      id: Date.now(),
+      message,
+      isError,
+      title: title || (isError ? 'Notice' : 'Email Notification'),
+    });
+  };
 
   // Preview state
   const [previewAsset, setPreviewAsset] = useState(null);
@@ -75,6 +111,41 @@ function MainApp() {
   const [previewInitialIndex, setPreviewInitialIndex] = useState(0);
   const [previewText, setPreviewText] = useState(null);
   const [previewCaption, setPreviewCaption] = useState(null);
+
+  // Global Keyboard Shortcuts for Undo (⌘Z / Ctrl+Z) and Redo (⌘⇧Z / Ctrl+Y)
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      // Allow native undo/redo inside active form inputs and contenteditable areas
+      const target = e.target;
+      const isInput = target && (
+        target.tagName === 'INPUT' ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable ||
+        target.closest?.('[contenteditable="true"]')
+      );
+      if (isInput) return;
+
+      const isMac = typeof navigator !== 'undefined' && navigator.platform?.toUpperCase().includes('MAC');
+      const isCmdOrCtrl = isMac ? e.metaKey : e.ctrlKey;
+
+      if (isCmdOrCtrl && !e.altKey) {
+        if (e.key.toLowerCase() === 'z') {
+          e.preventDefault();
+          if (e.shiftKey) {
+            if (canRedo) redo();
+          } else {
+            if (canUndo) undo();
+          }
+        } else if (e.key.toLowerCase() === 'y' && !isMac) {
+          e.preventDefault();
+          if (canRedo) redo();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [canUndo, canRedo, undo, redo]);
 
   // Month navigation
   const handlePrevMonth = () => {
@@ -241,7 +312,8 @@ function MainApp() {
 
     if (isAdmin && isDefaultName && hasNoCaption && hasNoSummary && hasNoRichText && hasNoAssets && hasNoPdf && hasNoThumbnail) {
       try {
-        await removeContent(item.id);
+        // Suppress undo history for auto-cleaning pristine empty drafts
+        await removeContent(item.id, false);
       } catch (e) {
         console.error('Failed to auto-delete empty item:', e);
       }
@@ -288,6 +360,20 @@ function MainApp() {
       status: status || 'revision',
       reviewedAt: new Date().toISOString(),
     });
+
+    if (status === 'revision') {
+      try {
+        const res = await sendNotification({
+          type: 'changes_requested',
+          contentItem: { ...revisionItem, feedback, feedbackAssets },
+          feedback,
+          feedbackAssets,
+        });
+        showToast(res.message || 'Changes requested & email dispatched to Designer!');
+      } catch (err) {
+        showToast(`Feedback saved, but email failed: ${err.message}`, true);
+      }
+    }
   };
 
   const handleResubmitForReview = async () => {
@@ -295,6 +381,35 @@ function MainApp() {
     await handleUpdateItem(revisionItem.id, {
       status: 'pending',
     });
+
+    try {
+      const res = await sendNotification({
+        type: 'approval_needed',
+        contentItem: revisionItem,
+        resubmitted: true,
+      });
+      showToast(res.message || 'Creative resubmitted & email sent to Admin!');
+    } catch (err) {
+      showToast(`Resubmitted for review (email notice: ${err.message})`, true);
+    }
+  };
+
+  // Designer submit for approval handler
+  const handleSendForApproval = async (item) => {
+    await handleUpdateItem(item.id, {
+      status: 'pending',
+    });
+
+    try {
+      const res = await sendNotification({
+        type: 'approval_needed',
+        contentItem: item,
+        resubmitted: false,
+      });
+      showToast(res.message || 'Creative submitted for approval & email sent to Admin!');
+    } catch (err) {
+      showToast(`Submitted for approval (email notice: ${err.message})`, true);
+    }
   };
 
   return (
@@ -312,6 +427,8 @@ function MainApp() {
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
         onSearchClear={clearSearch}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        designerEmail={appSettings.designerEmail}
       />
 
       {/* Main Content Area */}
@@ -349,6 +466,55 @@ function MainApp() {
           </div>
 
           <div className="app-main__subheader-right">
+            {/* Undo & Redo Buttons */}
+            <div className="app-main__history-group" role="group" aria-label="Undo and Redo">
+              <button
+                type="button"
+                className="app-main__history-btn"
+                disabled={!canUndo}
+                onClick={undo}
+                title={canUndo ? `Undo: ${lastUndoAction?.description || 'Last action'} (⌘Z)` : 'Nothing to undo (⌘Z)'}
+                aria-label="Undo last action"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="1 4 1 10 7 10" />
+                  <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                </svg>
+                <span>Undo</span>
+              </button>
+
+              <button
+                type="button"
+                className="app-main__history-btn"
+                disabled={!canRedo}
+                onClick={redo}
+                title={canRedo ? `Redo: ${lastRedoAction?.description || 'Last undone action'} (⌘⇧Z)` : 'Nothing to redo (⌘⇧Z)'}
+                aria-label="Redo last undone action"
+              >
+                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                  <polyline points="23 4 23 10 17 10" />
+                  <path d="M20.49 15a9 9 0 1 1-2.13-9.36L23 10" />
+                </svg>
+                <span>Redo</span>
+              </button>
+            </div>
+
+            {/* Notify Designer for Month Button (Admin only) */}
+            {isAdmin && (
+              <button
+                className="app-main__month-notify-btn"
+                onClick={() => setIsMonthNotifyOpen(true)}
+                type="button"
+                title={`Send monthly kickoff email to designer that all work has been uploaded for ${getMonthName(month)} ${year}`}
+              >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2">
+                  <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                  <polyline points="22,6 12,13 2,6" />
+                </svg>
+                <span>Notify Designer for {getMonthName(month)}</span>
+              </button>
+            )}
+
             <button
               className="app-main__ai-btn"
               onClick={() => setIsAiModalOpen(true)}
@@ -400,6 +566,7 @@ function MainApp() {
                 onCreateNew={handleCreateNew}
                 onEditItem={setEditingItem}
                 onOpenRevision={setRevisionItem}
+                onSendForApproval={handleSendForApproval}
                 year={year}
                 month={month}
               />
@@ -443,6 +610,7 @@ function MainApp() {
               onPreview={handleOpenPreview}
               onClose={() => handleCloseEditor(editingItem)}
               onOpenRevision={() => setRevisionItem(editingItem)}
+              onSendForApproval={handleSendForApproval}
             />
           </div>
         </div>
@@ -496,6 +664,38 @@ function MainApp() {
           />
         </Suspense>
       )}
+
+      {/* Floating Undo Toast for instant 1-click recovery */}
+      <UndoToast
+        toast={undoToast}
+        onUndo={undo}
+        onDismiss={dismissUndoToast}
+      />
+
+      {/* Admin Settings Modal */}
+      <SettingsModal
+        isOpen={isSettingsOpen}
+        onClose={() => setIsSettingsOpen(false)}
+        onSettingsUpdated={(newSettings) => setAppSettings(newSettings)}
+      />
+
+      {/* Monthly Content Brief Notification Modal */}
+      <MonthNotifyModal
+        isOpen={isMonthNotifyOpen}
+        onClose={() => setIsMonthNotifyOpen(false)}
+        year={year}
+        month={month}
+        content={content}
+        designerEmail={appSettings.designerEmail}
+        onOpenSettings={() => setIsSettingsOpen(true)}
+        onSuccess={(msg) => showToast(msg, false, 'Month Brief Sent')}
+      />
+
+      {/* Live Email Notification Toast */}
+      <NotificationToast
+        toast={notifToast}
+        onDismiss={() => setNotifToast(null)}
+      />
     </div>
   );
 }

@@ -1,4 +1,4 @@
-import { supabase, mapToFrontend, mapToDb } from '../db.js';
+import { queryD1, mapToFrontend } from '../db.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -13,16 +13,16 @@ export default async function handler(req, res) {
   if (req.method === 'GET') {
     const monthQuery = req.query.month; // e.g. 2026-07
     try {
-      let q = supabase.from('content').select('*');
+      let sql = 'SELECT * FROM content';
+      const params = [];
       if (monthQuery) {
-        q = q.like('date', `${monthQuery}%`);
+        sql += ' WHERE date LIKE ?';
+        params.push(`${monthQuery}%`);
       }
-      q = q.order('date', { ascending: true });
+      sql += ' ORDER BY date ASC;';
 
-      const { data, error } = await q;
-      if (error) throw error;
-
-      const content = (data || []).map(mapToFrontend);
+      const rows = await queryD1(sql, params);
+      const content = (rows || []).map(mapToFrontend);
       return res.status(200).json(content);
     } catch (err) {
       console.error('Error fetching content:', err);
@@ -35,31 +35,36 @@ export default async function handler(req, res) {
       const body = typeof req.body === 'string' ? JSON.parse(req.body) : req.body;
       const now = new Date().toISOString();
 
-      const itemToInsert = {
-        id: body.id || ('c' + Math.random().toString(36).substr(2, 9)),
-        date: body.date || now.split('T')[0],
-        name: body.name || 'Untitled Content',
-        type: body.type || (body.category === 'written' ? 'blog' : 'static'),
-        category: body.category || 'social',
-        summary: body.summary || '',
-        caption: body.caption || '',
-        platform: body.platform || (body.category === 'written' ? 'website' : 'instagram'),
-        status: body.status || 'draft',
-        assets: body.assets || [],
-        richText: body.richText || '',
-        script: body.script || '',
-        thumbnailAsset: body.thumbnailAsset || null,
-        pdfAsset: body.pdfAsset || null,
-        feedback: body.feedback || '',
-        feedbackAssets: body.feedbackAssets || [],
-        reviewedAt: body.reviewedAt || null
-      };
+      const id = body.id || ('c' + Math.random().toString(36).substr(2, 9));
+      const date = body.date || now.split('T')[0];
+      const name = body.name || 'Untitled Content';
+      const type = body.type || (body.category === 'written' ? 'blog' : 'static');
+      const category = body.category || 'social';
+      const summary = body.summary || '';
+      const caption = body.caption || '';
+      const platform = body.platform || (body.category === 'written' ? 'website' : 'instagram');
+      const status = body.status || 'draft';
+      const assets = JSON.stringify(body.assets || []);
+      const richText = body.richText || '';
+      const script = body.script || '';
+      const thumb = body.thumbnailAsset ? JSON.stringify(body.thumbnailAsset) : null;
+      const pdf = body.pdfAsset ? JSON.stringify(body.pdfAsset) : null;
+      const feedback = body.feedback || '';
+      const fbAssets = JSON.stringify(body.feedbackAssets || []);
+      const reviewedAt = body.reviewedAt || null;
 
-      const dbRow = mapToDb(itemToInsert);
-      const { data, error } = await supabase.from('content').insert(dbRow).select().single();
-      if (error) throw error;
+      await queryD1(`
+        INSERT INTO content (
+          id, date, name, type, category, summary, caption, platform, status,
+          assets, rich_text, script, thumbnail_asset, pdf_asset, feedback, feedback_assets, reviewed_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      `, [
+        id, date, name, type, category, summary, caption, platform, status,
+        assets, richText, script, thumb, pdf, feedback, fbAssets, reviewedAt, now, now
+      ]);
 
-      return res.status(201).json(mapToFrontend(data));
+      const rows = await queryD1('SELECT * FROM content WHERE id = ?', [id]);
+      return res.status(201).json(mapToFrontend(rows[0]));
     } catch (err) {
       console.error('Error creating content:', err);
       return res.status(500).json({ error: err.message });

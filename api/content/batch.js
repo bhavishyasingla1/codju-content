@@ -1,4 +1,4 @@
-import { supabase, mapToFrontend, mapToDb } from '../db.js';
+import { queryD1 } from '../db.js';
 
 export default async function handler(req, res) {
   // Enable CORS
@@ -23,27 +23,47 @@ export default async function handler(req, res) {
     }
 
     const now = new Date().toISOString();
-    const rowsToInsert = items.map(item => {
-      return mapToDb({
-        id: item.id || ('c' + Math.random().toString(36).substr(2, 9)),
-        date: item.date || now.split('T')[0],
-        name: item.name || 'Untitled Content',
-        type: item.type || (item.category === 'written' ? 'blog' : 'static'),
-        category: item.category || 'social',
-        summary: item.summary || '',
-        caption: item.caption || '',
-        platform: item.platform || (item.category === 'written' ? 'website' : 'instagram'),
-        status: item.status || 'draft',
-        assets: item.assets || [],
-        richText: item.richText || (item.type === 'text' ? `<p>${item.caption || ''}</p>` : ''),
-        script: item.script || ''
+    const inserted = [];
+
+    for (const item of items) {
+      const id = item.id || ('c' + Math.random().toString(36).substr(2, 9));
+      const date = item.date || now.split('T')[0];
+      const name = item.name || 'Untitled Content';
+      const type = item.type || (item.category === 'written' ? 'blog' : 'static');
+      const category = item.category || 'social';
+      const summary = item.summary || '';
+      const caption = item.caption || '';
+      const platform = item.platform || (category === 'written' ? 'website' : 'instagram');
+      const status = item.status || 'draft';
+      const assets = JSON.stringify(item.assets || []);
+      const richText = item.richText || '';
+      const script = item.script || '';
+      const thumb = item.thumbnailAsset ? JSON.stringify(item.thumbnailAsset) : null;
+      const pdf = item.pdfAsset ? JSON.stringify(item.pdfAsset) : null;
+      const feedback = item.feedback || '';
+      const fbAssets = JSON.stringify(item.feedbackAssets || []);
+      const reviewedAt = item.reviewedAt || null;
+
+      await queryD1(`
+        INSERT INTO content (
+          id, date, name, type, category, summary, caption, platform, status,
+          assets, rich_text, script, thumbnail_asset, pdf_asset, feedback, feedback_assets, reviewed_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+      `, [
+        id, date, name, type, category, summary, caption, platform, status,
+        assets, richText, script, thumb, pdf, feedback, fbAssets, reviewedAt, now, now
+      ]);
+
+      inserted.push({
+        id, date, name, type, category, summary, caption, platform, status,
+        assets: item.assets || [], richText, script,
+        thumbnailAsset: item.thumbnailAsset || null,
+        pdfAsset: item.pdfAsset || null,
+        feedback, feedbackAssets: item.feedbackAssets || [],
+        reviewedAt, createdAt: now, updatedAt: now
       });
-    });
+    }
 
-    const { data, error } = await supabase.from('content').insert(rowsToInsert).select();
-    if (error) throw error;
-
-    const inserted = (data || []).map(mapToFrontend);
     return res.status(200).json({ success: true, items: inserted });
   } catch (err) {
     console.error('Error batch creating content:', err);

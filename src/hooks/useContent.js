@@ -252,8 +252,247 @@ export function useContent(year, month) {
     };
   }, [syncWithServer]);
 
-  // CRUD Mutations with Optimistic Updates + Cross-Tab Broadcasts
-  const addContent = useCallback(async (contentData) => {
+  // Undo & Redo History Management
+  const [undoStack, setUndoStack] = useState([]);
+  const [redoStack, setRedoStack] = useState([]);
+  const [undoToast, setUndoToast] = useState(null);
+  const toastTimerRef = useRef(null);
+
+  const pushUndoAction = useCallback((action) => {
+    setUndoStack(prev => [...prev.slice(-49), action]); // Cap at 50 actions
+    setRedoStack([]); // New user action invalidates redo stack
+  }, []);
+
+  const showUndoToast = useCallback((message, onUndoAction) => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setUndoToast({
+      id: Date.now(),
+      message,
+      onUndo: onUndoAction,
+    });
+    toastTimerRef.current = setTimeout(() => {
+      setUndoToast(null);
+    }, 8000);
+  }, []);
+
+  const dismissUndoToast = useCallback(() => {
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current);
+    setUndoToast(null);
+  }, []);
+
+  const executeUndo = useCallback(async (action) => {
+    if (!action) return;
+
+    if (action.type === 'DELETE') {
+      const item = action.item;
+      if (!item) return;
+
+      deletedIdsRef.current.delete(item.id);
+      pendingItemsRef.current.set(item.id, item);
+
+      setContent(prev => {
+        if (prev.some(i => i.id === item.id)) return prev;
+        const updated = [...prev, item].sort((a, b) => new Date(a.date) - new Date(b.date));
+        persistCache(updated);
+        return updated;
+      });
+
+      contentService.broadcastLiveEvent('CONTENT_CREATED', item);
+
+      try {
+        await contentService.createContent(item);
+        pendingItemsRef.current.delete(item.id);
+      } catch (err) {
+        console.warn('Error restoring deleted item on server:', err);
+      }
+
+      setRedoStack(prev => [...prev, action]);
+      dismissUndoToast();
+      return;
+    }
+
+    if (action.type === 'CREATE') {
+      const item = action.item;
+      if (!item) return;
+
+      pendingItemsRef.current.delete(item.id);
+      deletedIdsRef.current.add(item.id);
+      setContent(prev => {
+        const updated = prev.filter(i => i.id !== item.id);
+        persistCache(updated);
+        return updated;
+      });
+      contentService.broadcastLiveEvent('CONTENT_DELETED', { id: item.id });
+
+      try {
+        await contentService.deleteContent(item.id);
+      } catch (err) {
+        console.warn('Error removing created item during undo:', err);
+      }
+
+      setRedoStack(prev => [...prev, action]);
+      dismissUndoToast();
+      return;
+    }
+
+    if (action.type === 'UPDATE') {
+      const { id, prevItem } = action;
+      if (!prevItem) return;
+
+      setContent(prev => {
+        const updated = prev.map(i => i.id === id ? prevItem : i)
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+        persistCache(updated);
+        return updated;
+      });
+
+      try {
+        await contentService.updateContent(id, prevItem);
+      } catch (err) {
+        console.warn('Error reverting item during undo:', err);
+      }
+
+      setRedoStack(prev => [...prev, action]);
+      dismissUndoToast();
+      return;
+    }
+
+    if (action.type === 'BATCH_CREATE') {
+      const { items } = action;
+      if (Array.isArray(items)) {
+        const ids = new Set(items.map(i => i.id));
+        items.forEach(i => {
+          pendingItemsRef.current.delete(i.id);
+          deletedIdsRef.current.add(i.id);
+        });
+        setContent(prev => {
+          const updated = prev.filter(i => !ids.has(i.id));
+          persistCache(updated);
+          return updated;
+        });
+
+        for (const item of items) {
+          contentService.deleteContent(item.id).catch(() => {});
+        }
+      }
+
+      setRedoStack(prev => [...prev, action]);
+      dismissUndoToast();
+      return;
+    }
+  }, [persistCache, dismissUndoToast]);
+
+  const executeRedo = useCallback(async (action) => {
+    if (!action) return;
+
+    if (action.type === 'DELETE') {
+      const item = action.item;
+      if (!item) return;
+
+      pendingItemsRef.current.delete(item.id);
+      deletedIdsRef.current.add(item.id);
+      setContent(prev => {
+        const updated = prev.filter(i => i.id !== item.id);
+        persistCache(updated);
+        return updated;
+      });
+      contentService.broadcastLiveEvent('CONTENT_DELETED', { id: item.id });
+
+      try {
+        await contentService.deleteContent(item.id);
+      } catch (err) {
+        console.warn('Error re-deleting item during redo:', err);
+      }
+
+      setUndoStack(prev => [...prev, action]);
+      return;
+    }
+
+    if (action.type === 'CREATE') {
+      const item = action.item;
+      if (!item) return;
+
+      deletedIdsRef.current.delete(item.id);
+      pendingItemsRef.current.set(item.id, item);
+
+      setContent(prev => {
+        if (prev.some(i => i.id === item.id)) return prev;
+        const updated = [...prev, item].sort((a, b) => new Date(a.date) - new Date(b.date));
+        persistCache(updated);
+        return updated;
+      });
+      contentService.broadcastLiveEvent('CONTENT_CREATED', item);
+
+      try {
+        await contentService.createContent(item);
+        pendingItemsRef.current.delete(item.id);
+      } catch (err) {
+        console.warn('Error re-creating item during redo:', err);
+      }
+
+      setUndoStack(prev => [...prev, action]);
+      return;
+    }
+
+    if (action.type === 'UPDATE') {
+      const { id, nextItem } = action;
+      if (!nextItem) return;
+
+      setContent(prev => {
+        const updated = prev.map(i => i.id === id ? nextItem : i)
+          .sort((a, b) => new Date(a.date) - new Date(b.date));
+        persistCache(updated);
+        return updated;
+      });
+
+      try {
+        await contentService.updateContent(id, nextItem);
+      } catch (err) {
+        console.warn('Error re-applying update during redo:', err);
+      }
+
+      setUndoStack(prev => [...prev, action]);
+      return;
+    }
+
+    if (action.type === 'BATCH_CREATE') {
+      const { items } = action;
+      if (Array.isArray(items)) {
+        items.forEach(item => {
+          deletedIdsRef.current.delete(item.id);
+          pendingItemsRef.current.set(item.id, item);
+        });
+
+        setContent(prev => {
+          const updated = [...prev, ...items].sort((a, b) => new Date(a.date) - new Date(b.date));
+          persistCache(updated);
+          return updated;
+        });
+
+        contentService.createBatchContent(items).catch(() => {});
+      }
+
+      setUndoStack(prev => [...prev, action]);
+      return;
+    }
+  }, [persistCache]);
+
+  const undo = useCallback(async () => {
+    if (undoStack.length === 0) return;
+    const action = undoStack[undoStack.length - 1];
+    setUndoStack(prev => prev.slice(0, -1));
+    await executeUndo(action);
+  }, [undoStack, executeUndo]);
+
+  const redo = useCallback(async () => {
+    if (redoStack.length === 0) return;
+    const action = redoStack[redoStack.length - 1];
+    setRedoStack(prev => prev.slice(0, -1));
+    await executeRedo(action);
+  }, [redoStack, executeRedo]);
+
+  // CRUD Mutations with Optimistic Updates + Cross-Tab Broadcasts + Undo Tracking
+  const addContent = useCallback(async (contentData, recordHistory = true) => {
     const now = new Date().toISOString();
     const tempId = contentData.id || ('c_' + Date.now().toString(36) + '_' + Math.random().toString(36).substr(2, 6));
     const optimisticItem = {
@@ -282,6 +521,14 @@ export function useContent(year, month) {
     deletedIdsRef.current.delete(tempId);
     pendingItemsRef.current.set(tempId, optimisticItem);
 
+    if (recordHistory) {
+      pushUndoAction({
+        type: 'CREATE',
+        item: { ...optimisticItem },
+        description: `Created "${optimisticItem.name}"`
+      });
+    }
+
     // 1. Instantly update React state in 0ms
     setContent(prev => {
       const updated = [...prev, optimisticItem].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -309,10 +556,21 @@ export function useContent(year, month) {
       console.warn('Background add sync note (persisted locally):', err.message);
       return optimisticItem;
     }
-  }, [persistCache]);
+  }, [persistCache, pushUndoAction]);
 
-  const updateContentItem = useCallback(async (id, updates) => {
+  const updateContentItem = useCallback(async (id, updates, recordHistory = true) => {
     try {
+      const prevItem = contentRef.current.find(item => item.id === id);
+      if (recordHistory && prevItem) {
+        pushUndoAction({
+          type: 'UPDATE',
+          id,
+          prevItem: { ...prevItem },
+          nextItem: { ...prevItem, ...updates },
+          description: `Updated "${prevItem.name}"`
+        });
+      }
+
       // Optimistically update local state immediately
       setContent(prev => {
         const updated = prev.map(item => item.id === id ? { ...item, ...updates } : item)
@@ -335,9 +593,11 @@ export function useContent(year, month) {
       syncWithServer(true);
       throw err;
     }
-  }, [persistCache, syncWithServer]);
+  }, [persistCache, syncWithServer, pushUndoAction]);
 
-  const removeContent = useCallback(async (id) => {
+  const removeContent = useCallback(async (id, recordHistory = true) => {
+    const targetItem = contentRef.current.find(item => item.id === id);
+
     pendingItemsRef.current.delete(id);
     deletedIdsRef.current.add(id);
     setContent(prev => {
@@ -347,14 +607,26 @@ export function useContent(year, month) {
     });
     contentService.broadcastLiveEvent('CONTENT_DELETED', { id });
 
+    if (recordHistory && targetItem) {
+      const action = {
+        type: 'DELETE',
+        item: { ...targetItem },
+        description: `Deleted "${targetItem.name || 'Content Piece'}"`
+      };
+      pushUndoAction(action);
+      showUndoToast(`Deleted "${targetItem.name || 'Content Piece'}"`, () => {
+        executeUndo(action);
+      });
+    }
+
     try {
       await contentService.deleteContent(id);
     } catch (err) {
       console.warn('Background delete error:', err.message);
     }
-  }, [persistCache]);
+  }, [persistCache, pushUndoAction, showUndoToast, executeUndo]);
 
-  const batchAddContent = useCallback(async (items) => {
+  const batchAddContent = useCallback(async (items, recordHistory = true) => {
     const now = new Date().toISOString();
     // 1. Instantly generate items and update UI + cache in 0ms
     const optimisticItems = items.map((item, idx) => ({
@@ -383,6 +655,14 @@ export function useContent(year, month) {
       deletedIdsRef.current.delete(item.id);
       pendingItemsRef.current.set(item.id, item);
     });
+
+    if (recordHistory) {
+      pushUndoAction({
+        type: 'BATCH_CREATE',
+        items: optimisticItems.map(i => ({ ...i })),
+        description: `Added ${optimisticItems.length} items`
+      });
+    }
 
     setContent(prev => {
       const updated = [...prev, ...optimisticItems].sort((a, b) => new Date(a.date) - new Date(b.date));
@@ -414,7 +694,7 @@ export function useContent(year, month) {
       console.warn('Background batch sync note (persisted locally):', err.message);
       return optimisticItems;
     }
-  }, [persistCache]);
+  }, [persistCache, pushUndoAction]);
 
   const refreshContent = useCallback(() => {
     return syncWithServer(false);
@@ -429,5 +709,14 @@ export function useContent(year, month) {
     updateContentItem,
     removeContent,
     refreshContent,
+    canUndo: undoStack.length > 0,
+    canRedo: redoStack.length > 0,
+    undo,
+    redo,
+    undoToast,
+    dismissUndoToast,
+    lastUndoAction: undoStack[undoStack.length - 1] || null,
+    lastRedoAction: redoStack[redoStack.length - 1] || null,
   };
 }
+

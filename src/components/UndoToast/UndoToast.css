@@ -1,0 +1,170 @@
+.undo-toast {
+  position: fixed;
+  bottom: 28px;
+  right: 28px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  background: rgba(18, 18, 28, 0.94);
+  color: #ffffff;
+  border-radius: var(--radius-lg, 12px);
+  border: 1.5px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 16px 36px rgba(0, 0, 0, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.05);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  z-index: 9999;
+  max-width: 420px;
+  overflow: hidden;
+  transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+.undo-toast--enter {
+  animation: undoToastSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.undo-toast--exit {
+  animation: undoToastSlideOut 0.2s ease-in forwards;
+}
+
+@keyframes undoToastSlideIn {
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.95);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes undoToastSlideOut {
+  from {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: translateY(16px) scale(0.95);
+  }
+}
+
+.undo-toast__content {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.undo-toast__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  background: rgba(108, 92, 231, 0.25);
+  color: #a29bfe;
+  flex-shrink: 0;
+}
+
+.undo-toast__message {
+  font-size: 13px;
+  font-weight: 500;
+  color: #f1f2f6;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.undo-toast__actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.undo-toast__btn-undo {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border-radius: var(--radius-md, 8px);
+  font-size: 12px;
+  font-weight: 700;
+  color: #ffffff;
+  background: var(--color-primary);
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  cursor: pointer;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.25);
+  transition: all 0.15s ease;
+}
+
+.undo-toast__btn-undo:hover {
+  background: var(--color-primary-hover);
+  border-color: rgba(255, 255, 255, 0.25);
+  transform: scale(1.03);
+  box-shadow: 0 3px 8px rgba(0, 0, 0, 0.35);
+}
+
+.undo-toast__btn-undo:active {
+  transform: scale(0.97);
+}
+
+.undo-toast__kbd {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.25);
+  color: rgba(255, 255, 255, 0.8);
+  font-family: inherit;
+  font-weight: 600;
+}
+
+.undo-toast__btn-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: transparent;
+  color: rgba(255, 255, 255, 0.45);
+  border: none;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.undo-toast__btn-close:hover {
+  background: rgba(255, 255, 255, 0.1);
+  color: #ffffff;
+}
+
+.undo-toast__progress-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  height: 2.5px;
+  background: var(--color-primary-light);
+  width: 100%;
+  animation: undoProgressBar 8s linear forwards;
+}
+
+@keyframes undoProgressBar {
+  from {
+    width: 100%;
+  }
+  to {
+    width: 0%;
+  }
+}
+
+@media (max-width: 600px) {
+  .undo-toast {
+    left: 16px;
+    right: 16px;
+    bottom: 20px;
+    max-width: none;
+  }
+}

@@ -9,7 +9,7 @@ import { uploadAsset } from '../../services/contentService';
 import { useAuth } from '../../context/AuthContext';
 import './ContentEditor.css';
 
-export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onClose, onOpenRevision, showSummary = false }) {
+export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onClose, onOpenRevision, onSendForApproval, showSummary = false }) {
   const { isViewer, isDesigner, isAdmin, openPinModal } = useAuth();
   const [formData, setFormData] = useState({ ...item });
 
@@ -69,7 +69,11 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
     }
     const updated = { ...formData, status: 'pending' };
     setFormData(updated);
-    onUpdate(item.id, updated);
+    if (onSendForApproval) {
+      onSendForApproval(updated);
+    } else {
+      onUpdate(item.id, updated);
+    }
   };
 
   const handleRemoveAsset = (assetId) => {

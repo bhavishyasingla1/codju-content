@@ -1,5 +1,5 @@
 // Content Service Layer
-// Communicates with our Vite backend API connected to Supabase Postgres.
+// Communicates with Cloudflare Workers API connected to Cloudflare D1 & R2.
 
 import { PLATFORMS, CONTENT_TYPES, STATUSES } from '../data/mockContent';
 import { dataUrlToBlob } from '../utils/helpers';
@@ -164,84 +164,8 @@ export async function createMonth(_year, _month) {
   return true;
 }
 
-function fileToDataURL(file) {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result);
-    reader.onerror = () => reject(new Error('Failed to read file. Please ensure file is not corrupted.'));
-    reader.readAsDataURL(file);
-  });
-}
-
 /**
- * Compresses an image file client-side to prevent bloated Base64 data URLs
- * @param {File} file
- * @param {number} maxDim
- * @param {number} quality
- * @returns {Promise<{ dataUrl: string, size: number, type: string }>}
- */
-async function compressImage(file, maxDim = 1600, quality = 0.85) {
-  return new Promise((resolve) => {
-    // If SVG or GIF, don't compress in canvas to keep animation/vector quality
-    if (file.type === 'image/svg+xml' || file.type === 'image/gif') {
-      const reader = new FileReader();
-      reader.onload = () => resolve({ dataUrl: reader.result, size: file.size, type: file.type });
-      reader.onerror = () => resolve(null);
-      reader.readAsDataURL(file);
-      return;
-    }
-
-    const img = new Image();
-    const objectUrl = URL.createObjectURL(file);
-
-    img.onload = () => {
-      URL.revokeObjectURL(objectUrl);
-      let { width, height } = img;
-
-      if (width > maxDim || height > maxDim) {
-        if (width > height) {
-          height = Math.round((height * maxDim) / width);
-          width = maxDim;
-        } else {
-          width = Math.round((width * maxDim) / height);
-          height = maxDim;
-        }
-      }
-
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-
-      // Prefer webp for smaller footprint with great visual quality
-      let outputType = 'image/webp';
-      let dataUrl = canvas.toDataURL(outputType, quality);
-
-      // If browser doesn't support webp encoding (rare), fallback to jpeg
-      if (!dataUrl.startsWith('data:image/webp')) {
-        outputType = 'image/jpeg';
-        dataUrl = canvas.toDataURL(outputType, quality);
-      }
-
-      // Calculate approximate byte size from base64
-      const base64Length = dataUrl.length - (dataUrl.indexOf(',') + 1);
-      const approxSize = Math.round((base64Length * 3) / 4);
-
-      resolve({ dataUrl, size: approxSize, type: outputType });
-    };
-
-    img.onerror = () => {
-      URL.revokeObjectURL(objectUrl);
-      resolve(null);
-    };
-
-    img.src = objectUrl;
-  });
-}
-
-/**
- * Upload an asset (with automatic client-side compression for images)
+ * Upload an asset to Cloudflare R2 object storage
  * @param {File} file
  * @returns {Promise<object>}
  */
@@ -253,52 +177,30 @@ export async function uploadAsset(file) {
     throw new Error('File size exceeds the 50MB limit. Please upload a smaller file.');
   }
   try {
-    let finalDataUrl = null;
-    let finalSize = file.size;
-    let resolvedType = file.type;
+    const formData = new FormData();
+    formData.append('file', file);
 
-    if (!resolvedType) {
-      if (file.name.toLowerCase().endsWith('.pdf')) {
-        resolvedType = 'application/pdf';
-      } else if (file.name.toLowerCase().match(/\.(jpg|jpeg)$/)) {
-        resolvedType = 'image/jpeg';
-      } else if (file.name.toLowerCase().endsWith('.png')) {
-        resolvedType = 'image/png';
-      } else if (file.name.toLowerCase().endsWith('.webp')) {
-        resolvedType = 'image/webp';
-      } else {
-        resolvedType = 'application/octet-stream';
-      }
+    const response = await fetch('/api/assets/upload', {
+      method: 'POST',
+      body: formData,
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => ({ error: 'Upload failed' }));
+      throw new Error(errData.error || `Upload failed with status ${response.status}`);
     }
 
-    // Apply smart image compression for photos and artwork to keep data fast & light
-    if (resolvedType.startsWith('image/') && resolvedType !== 'image/svg+xml' && resolvedType !== 'image/gif') {
-      try {
-        const compressed = await compressImage(file, 1600, 0.85);
-        if (compressed && compressed.dataUrl) {
-          finalDataUrl = compressed.dataUrl;
-          finalSize = compressed.size;
-          resolvedType = compressed.type;
-        }
-      } catch (e) {
-        console.warn('Image compression fallback:', e);
-      }
-    }
-
-    if (!finalDataUrl) {
-      finalDataUrl = await fileToDataURL(file);
-    }
-
+    const data = await response.json();
     return {
-      id: 'a' + Math.random().toString(36).substr(2, 9),
-      name: file.name,
-      type: resolvedType,
-      size: finalSize,
-      url: finalDataUrl,
-      uploadedAt: new Date().toISOString(),
+      id: data.id || ('a' + Math.random().toString(36).substr(2, 9)),
+      name: data.name || file.name,
+      type: data.type || file.type || 'application/octet-stream',
+      size: data.size || file.size,
+      url: data.url,
+      uploadedAt: data.uploadedAt || new Date().toISOString(),
     };
   } catch (error) {
-    console.error('Failed to process asset upload', error);
+    console.error('Failed to process asset upload to R2:', error);
     throw error;
   }
 }
