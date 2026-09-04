@@ -268,6 +268,7 @@ export default function PdfViewer({
             src={safeUrl}
             title={fileName}
             className="pdf-viewer__native-iframe"
+            sandbox="allow-same-origin allow-downloads"
           />
         </object>
       </div>

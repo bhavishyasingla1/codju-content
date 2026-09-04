@@ -2,6 +2,26 @@ import { useRef, useCallback, useEffect, useState } from 'react';
 import { getCharCount, stripHtml, copyToClipboard } from '../../utils/helpers';
 import './RichTextEditor.css';
 
+function ToolButton({ command, icon, title, onClick, onExec }) {
+  return (
+    <button
+      className="rte__tool-btn"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        if (onClick) {
+          onClick();
+        } else if (onExec) {
+          onExec(command);
+        }
+      }}
+      title={title}
+      type="button"
+    >
+      {icon}
+    </button>
+  );
+}
+
 export default function RichTextEditor({ value = '', onChange, placeholder = 'Start writing...', showCopyButton = false, showCharCount = false, readOnly = false }) {
   const [copied, setCopied] = useState(false);
   const editorRef = useRef(null);
@@ -24,8 +44,8 @@ export default function RichTextEditor({ value = '', onChange, placeholder = 'St
     }
   }, [onChange]);
 
-  const execCommand = useCallback((command, value = null) => {
-    document.execCommand(command, false, value);
+  const execCommand = useCallback((command, cmdValue = null) => {
+    document.execCommand(command, false, cmdValue);
     editorRef.current?.focus();
     handleInput();
   }, [handleInput]);
@@ -46,24 +66,6 @@ export default function RichTextEditor({ value = '', onChange, placeholder = 'St
 
   const charCount = getCharCount(value);
 
-  const ToolButton = ({ command, icon, title, onClick }) => (
-    <button
-      className="rte__tool-btn"
-      onMouseDown={(e) => {
-        e.preventDefault();
-        if (onClick) {
-          onClick();
-        } else {
-          execCommand(command);
-        }
-      }}
-      title={title}
-      type="button"
-    >
-      {icon}
-    </button>
-  );
-
   return (
     <div className="rte">
       {/* Toolbar */}
@@ -76,16 +78,19 @@ export default function RichTextEditor({ value = '', onChange, placeholder = 'St
                   command="bold"
                   title="Bold"
                   icon={<strong>B</strong>}
+                  onExec={execCommand}
                 />
                 <ToolButton
                   command="italic"
                   title="Italic"
                   icon={<em>I</em>}
+                  onExec={execCommand}
                 />
                 <ToolButton
                   command="underline"
                   title="Underline"
                   icon={<u>U</u>}
+                  onExec={execCommand}
                 />
               </div>
 
@@ -95,6 +100,7 @@ export default function RichTextEditor({ value = '', onChange, placeholder = 'St
                 <ToolButton
                   command="insertUnorderedList"
                   title="Bullet List"
+                  onExec={execCommand}
                   icon={
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="8" y1="6" x2="21" y2="6" />
@@ -109,6 +115,7 @@ export default function RichTextEditor({ value = '', onChange, placeholder = 'St
                 <ToolButton
                   command="insertOrderedList"
                   title="Numbered List"
+                  onExec={execCommand}
                   icon={
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="10" y1="6" x2="21" y2="6" />
@@ -167,6 +174,7 @@ export default function RichTextEditor({ value = '', onChange, placeholder = 'St
                 <ToolButton
                   command="undo"
                   title="Undo"
+                  onExec={execCommand}
                   icon={
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="1,4 1,10 7,10" />
@@ -177,6 +185,7 @@ export default function RichTextEditor({ value = '', onChange, placeholder = 'St
                 <ToolButton
                   command="redo"
                   title="Redo"
+                  onExec={execCommand}
                   icon={
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                       <polyline points="23,4 23,10 17,10" />

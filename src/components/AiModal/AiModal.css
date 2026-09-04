@@ -276,3 +276,41 @@
   cursor: not-allowed;
   transform: none;
 }
+
+@media (max-width: 640px) {
+  .ai-modal-backdrop {
+    padding: 10px;
+  }
+
+  .ai-modal {
+    max-height: 94vh;
+    border-radius: var(--radius-md);
+  }
+
+  .ai-modal__header {
+    padding: 14px 16px;
+  }
+
+  .ai-modal__body {
+    padding: 16px;
+    gap: 14px;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .ai-modal__panda-container {
+    height: 180px;
+  }
+
+  .ai-modal__footer {
+    flex-direction: column-reverse;
+    gap: 8px;
+    width: 100%;
+  }
+
+  .ai-modal__btn-cancel,
+  .ai-modal__btn-submit {
+    width: 100%;
+    justify-content: center;
+  }
+}

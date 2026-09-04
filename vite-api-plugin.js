@@ -86,11 +86,12 @@ export function viteApiPlugin() {
   return {
     name: 'vite-api-plugin',
     configureServer(server) {
-      server.middlewares.use(async (req, res, next) => {
-        // Set standard CORS & security headers
-        res.setHeader('Access-Control-Allow-Origin', '*');
-        res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-        res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+      server.middlewares.use((req, res, next) => {
+        (async () => {
+          // Set standard CORS & security headers
+          res.setHeader('Access-Control-Allow-Origin', '*');
+          res.setHeader('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+          res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
         res.setHeader('X-Content-Type-Options', 'nosniff');
         res.setHeader('X-Frame-Options', 'SAMEORIGIN');
         res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -992,7 +993,8 @@ export function viteApiPlugin() {
 
         // Pass to next middleware
         next();
-      });
+      })().catch(next);
+    });
     }
   };
 }

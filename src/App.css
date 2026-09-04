@@ -89,78 +89,6 @@
   border-color: var(--color-border-hover);
 }
 
-@media (max-width: 768px) {
-  .app-main {
-    padding: 16px 14px;
-  }
-  
-  .app-modal-backdrop {
-    padding: 12px;
-  }
-
-  .app-main__subheader {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 12px;
-    margin-bottom: 16px;
-    padding-bottom: 14px;
-  }
-
-  .app-main__subheader-left {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    width: 100%;
-    gap: 10px;
-  }
-
-  .app-main__subheader-right {
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    justify-content: space-between;
-    width: 100%;
-    gap: 8px;
-  }
-}
-
-@media (max-width: 480px) {
-  .app-main {
-    padding: 12px 10px;
-  }
-
-  .app-main__month-title {
-    font-size: var(--text-base);
-  }
-
-  .app-category-tab {
-    padding: 5px 9px;
-    font-size: 11px;
-    gap: 4px;
-  }
-
-  .app-category-tab__badge {
-    min-width: 16px;
-    height: 16px;
-    font-size: 9px;
-    padding: 0 4px;
-  }
-
-  .app-main__ai-btn {
-    padding: 6px 11px;
-    font-size: 11px;
-  }
-
-  .app-main__notify-designer-btn,
-  .app-main__notify-admin-btn {
-    padding: 6px 10px;
-    font-size: 11px;
-  }
-
-  .app-main__history-btn {
-    padding: 5px 8px;
-  }
-}
 
 .app-main__subheader {
   display: flex;
@@ -610,4 +538,128 @@
   border-color: var(--color-primary-hover, #7c3aed);
   color: #ffffff;
 }
+
+/* ==========================================================================
+   Responsive Multi-Device Layout Overrides
+   ========================================================================== */
+@media (max-width: 1024px) {
+  .app-main {
+    padding: 20px 18px;
+  }
+}
+
+@media (max-width: 768px) {
+  .app-main {
+    padding: 16px 14px;
+  }
+
+  .app-modal-backdrop {
+    padding: 12px;
+  }
+
+  .app-modal {
+    max-height: 90vh;
+    border-radius: var(--radius-lg);
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .app-main__subheader {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+    margin-bottom: 16px;
+    padding-bottom: 14px;
+  }
+
+  .app-main__subheader-left {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    gap: 10px;
+  }
+
+  .app-main__subheader-right {
+    display: flex;
+    align-items: center;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    width: 100%;
+    gap: 8px;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-modal-backdrop {
+    padding: 8px;
+  }
+
+  .app-modal {
+    max-height: 94vh;
+    width: 100%;
+    border-radius: var(--radius-md);
+  }
+
+  .app-main__subheader-left {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .app-category-tab {
+    padding: 6px 11px;
+    font-size: 12px;
+  }
+
+  .app-main__ai-btn {
+    width: 100%;
+    justify-content: center;
+  }
+}
+
+@media (max-width: 480px) {
+  .app-main {
+    padding: 12px 10px;
+  }
+
+  .app-main__month-title {
+    font-size: var(--text-base);
+  }
+
+  .app-category-tab {
+    padding: 5px 9px;
+    font-size: 11px;
+    gap: 4px;
+  }
+
+  .app-category-tab__badge {
+    min-width: 16px;
+    height: 16px;
+    font-size: 9px;
+    padding: 0 4px;
+  }
+
+  .app-main__ai-btn {
+    padding: 7px 12px;
+    font-size: 12px;
+  }
+
+  .app-main__notify-designer-btn,
+  .app-main__notify-admin-btn {
+    padding: 6px 10px;
+    font-size: 11px;
+  }
+
+  .app-main__history-btn {
+    padding: 5px 8px;
+  }
+
+  .app-main__empty-filter-title {
+    font-size: 15px;
+  }
+
+  .app-main__empty-filter-desc {
+    font-size: 12px;
+  }
+}
+
 

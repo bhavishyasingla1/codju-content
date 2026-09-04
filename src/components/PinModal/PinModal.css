@@ -232,3 +232,33 @@
   background: var(--color-bg-hover);
   color: var(--color-text);
 }
+
+@media (max-width: 420px) {
+  .pin-modal__backdrop {
+    padding: 10px;
+  }
+
+  .pin-modal {
+    max-width: 100%;
+  }
+
+  .pin-modal__header {
+    padding: 20px 16px 14px;
+  }
+
+  .pin-modal__body {
+    padding: 16px;
+    gap: 14px;
+  }
+
+  .pin-modal__inputs {
+    gap: 8px;
+  }
+
+  .pin-modal__input {
+    width: 48px;
+    height: 54px;
+    font-size: 20px;
+  }
+}
+
