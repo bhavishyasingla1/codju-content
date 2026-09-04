@@ -31,6 +31,57 @@ async function parseJsonBody(req) {
   return JSON.parse(buf.toString('utf-8'));
 }
 
+// Normalize sender email to verified domain hibhavishya.in
+function normalizeSenderEmail(senderEmail) {
+  if (!senderEmail || senderEmail.includes('onboarding@resend.dev') || senderEmail.includes('@gmail.com')) {
+    return 'Bhavishya <noreply@hibhavishya.in>';
+  }
+  // If user typed haibhavishya.in, map to verified domain hibhavishya.in
+  if (senderEmail.includes('@haibhavishya.in')) {
+    return senderEmail.replace('@haibhavishya.in', '@hibhavishya.in');
+  }
+  return senderEmail;
+}
+
+
+// Lossless pure Buffer multipart parser (preserves 100% byte fidelity without string encoding corruption)
+function parseMultipartBuffer(rawBuf, boundary) {
+  const boundaryBuf = Buffer.from('--' + boundary);
+  const headerDelimBuf = Buffer.from('\r\n\r\n');
+  
+  let startIdx = rawBuf.indexOf(boundaryBuf);
+  if (startIdx === -1) return null;
+  
+  while (startIdx !== -1) {
+    const nextIdx = rawBuf.indexOf(boundaryBuf, startIdx + boundaryBuf.length);
+    if (nextIdx === -1) break;
+    
+    // Chunk between boundaries
+    const partBuf = rawBuf.subarray(startIdx + boundaryBuf.length + 2, nextIdx);
+    const headerEnd = partBuf.indexOf(headerDelimBuf);
+    
+    if (headerEnd !== -1) {
+      const headerStr = partBuf.subarray(0, headerEnd).toString('utf8');
+      if (headerStr.includes('filename=')) {
+        const nameMatch = headerStr.match(/filename="([^"]+)"/);
+        const fileName = nameMatch ? nameMatch[1] : 'upload.bin';
+        const typeMatch = headerStr.match(/Content-Type:\s*([^\r\n]+)/i);
+        const fileType = typeMatch ? typeMatch[1].trim() : 'application/octet-stream';
+        
+        let dataEnd = partBuf.length;
+        if (dataEnd >= 2 && partBuf[dataEnd - 2] === 0x0D && partBuf[dataEnd - 1] === 0x0A) {
+          dataEnd -= 2;
+        }
+        const fileData = partBuf.subarray(headerEnd + 4, dataEnd);
+        return { fileName, fileType, buffer: fileData };
+      }
+    }
+    
+    startIdx = nextIdx;
+  }
+  return null;
+}
+
 export function viteApiPlugin() {
   return {
     name: 'vite-api-plugin',
@@ -57,6 +108,14 @@ export function viteApiPlugin() {
         if (pathname === '/api/generate-ai' && req.method === 'POST') {
           try {
             const body = await parseJsonBody(req);
+            if (!body.apiKey) {
+              try {
+                const rows = await queryD1("SELECT value FROM app_settings WHERE key = 'groq_api_key' LIMIT 1;");
+                if (rows?.[0]?.value) {
+                  body.apiKey = rows[0].value;
+                }
+              } catch {}
+            }
             const mockRes = {
               setHeader: (k, v) => res.setHeader(k, v),
               status: (code) => { res.statusCode = code; return mockRes; },
@@ -94,34 +153,16 @@ export function viteApiPlugin() {
                 return;
               }
 
-              // Simple multipart parser
-              const parts = rawBody.toString('binary').split('--' + boundary);
-              let fileBuf = null;
-              let fileName = 'upload.bin';
-              let fileType = 'application/octet-stream';
-
-              for (const part of parts) {
-                if (part.includes('Content-Disposition') && part.includes('filename=')) {
-                  const nameMatch = part.match(/filename="([^"]+)"/);
-                  if (nameMatch) fileName = nameMatch[1];
-
-                  const typeMatch = part.match(/Content-Type:\s*([^\r\n]+)/i);
-                  if (typeMatch) fileType = typeMatch[1].trim();
-
-                  const headerEndIndex = part.indexOf('\r\n\r\n');
-                  if (headerEndIndex !== -1) {
-                    const dataString = part.substring(headerEndIndex + 4, part.length - 2);
-                    fileBuf = Buffer.from(dataString, 'binary');
-                    break;
-                  }
-                }
-              }
-
-              if (!fileBuf) {
+              const parsedFile = parseMultipartBuffer(rawBody, boundary);
+              if (!parsedFile || !parsedFile.buffer || parsedFile.buffer.length === 0) {
                 res.statusCode = 400;
                 res.end(JSON.stringify({ error: 'No file found in request' }));
                 return;
               }
+
+              const fileName = parsedFile.fileName;
+              const fileType = parsedFile.fileType;
+              const fileBuf = parsedFile.buffer;
 
               const safeName = fileName.replace(/[^a-zA-Z0-9._-]/g, '_').toLowerCase();
               const assetId = 'a' + Math.random().toString(36).substr(2, 9);
@@ -517,7 +558,8 @@ export function viteApiPlugin() {
               const adminEmail = map.admin_email || process.env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com';
               const designerEmail = map.designer_email || '';
               const resendApiKey = map.resend_api_key || process.env.RESEND_API_KEY || '';
-              const senderEmail = map.sender_email || 'Codju Content Calendar <onboarding@resend.dev>';
+              const groqApiKey = map.groq_api_key || process.env.GROQ_API_KEY || '';
+              const senderEmail = normalizeSenderEmail(map.sender_email);
               const dailyReminderEnabled = map.daily_reminder_enabled !== 'false';
               const dailyReminderTime = map.daily_reminder_time || '12:00';
 
@@ -527,6 +569,8 @@ export function viteApiPlugin() {
                 senderEmail,
                 resendApiKeyConfigured: !!resendApiKey,
                 resendApiKeyMasked: resendApiKey ? `${resendApiKey.substring(0, 6)}...` : '',
+                groqApiKeyConfigured: !!groqApiKey,
+                groqApiKeyMasked: groqApiKey ? `${groqApiKey.substring(0, 6)}...` : '',
                 dailyReminderEnabled,
                 dailyReminderTime,
               }));
@@ -567,6 +611,12 @@ export function viteApiPlugin() {
                   ['resend_api_key', body.resendApiKey.trim(), now]
                 );
               }
+              if (body.groqApiKey !== undefined && body.groqApiKey.trim()) {
+                await queryD1(
+                  'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;',
+                  ['groq_api_key', body.groqApiKey.trim(), now]
+                );
+              }
               if (body.dailyReminderEnabled !== undefined) {
                 await queryD1(
                   'INSERT INTO app_settings (key, value, updated_at) VALUES (?, ?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at;',
@@ -585,19 +635,69 @@ export function viteApiPlugin() {
               for (const r of (rows || [])) map[r.key] = r.value;
 
               const resendApiKey = map.resend_api_key || process.env.RESEND_API_KEY || '';
+              const groqApiKey = map.groq_api_key || process.env.GROQ_API_KEY || '';
 
               res.end(JSON.stringify({
                 success: true,
                 adminEmail: map.admin_email || process.env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com',
                 designerEmail: map.designer_email || '',
-                senderEmail: map.sender_email || 'Codju Content Calendar <onboarding@resend.dev>',
+                senderEmail: normalizeSenderEmail(map.sender_email),
                 resendApiKeyConfigured: !!resendApiKey,
                 resendApiKeyMasked: resendApiKey ? `${resendApiKey.substring(0, 6)}...` : '',
+                groqApiKeyConfigured: !!groqApiKey,
+                groqApiKeyMasked: groqApiKey ? `${groqApiKey.substring(0, 6)}...` : '',
                 dailyReminderEnabled: map.daily_reminder_enabled !== 'false',
                 dailyReminderTime: map.daily_reminder_time || '12:00',
               }));
             } catch (err) {
               console.error('Error saving settings in dev:', err);
+              res.statusCode = 500;
+              res.end(JSON.stringify({ error: err.message }));
+            }
+            return;
+          }
+
+          res.statusCode = 405;
+          res.end(JSON.stringify({ error: 'Method Not Allowed' }));
+          return;
+        }
+
+        // Route: GET/POST /api/activity-logs
+        if (pathname === '/api/activity-logs') {
+          res.setHeader('Content-Type', 'application/json');
+
+          if (req.method === 'GET') {
+            try {
+              const limit = Math.min(100, Math.max(1, parseInt(parsedUrl.query?.limit || '50', 10)));
+              const rows = await queryD1('SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT ?;', [limit]);
+              res.end(JSON.stringify({ success: true, logs: rows || [] }));
+            } catch (err) {
+              console.error('Error fetching activity logs in dev:', err);
+              res.statusCode = 500;
+              res.end(JSON.stringify({ success: false, logs: [], error: err.message }));
+            }
+            return;
+          }
+
+          if (req.method === 'POST') {
+            try {
+              const body = await parseJsonBody(req);
+              const id = 'act_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+              const action = body.action || 'system_event';
+              const actor = body.actor || 'system';
+              const itemId = body.item_id || body.itemId || null;
+              const itemName = body.item_name || body.itemName || null;
+              const details = typeof body.details === 'object' ? JSON.stringify(body.details) : (body.details || '');
+
+              await queryD1(
+                "INSERT INTO activity_logs (id, action, actor, item_id, item_name, details, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime('now'));",
+                [id, action, actor, itemId, itemName, details]
+              );
+
+              res.statusCode = 201;
+              res.end(JSON.stringify({ success: true, id }));
+            } catch (err) {
+              console.error('Error recording activity log in dev:', err);
               res.statusCode = 500;
               res.end(JSON.stringify({ error: err.message }));
             }
@@ -631,16 +731,6 @@ export function viteApiPlugin() {
             const map = {};
             for (const r of (rows || [])) map[r.key] = r.value;
 
-            function normalizeSenderEmail(senderEmail) {
-              if (!senderEmail || senderEmail.includes('onboarding@resend.dev') || senderEmail.includes('@gmail.com')) {
-                return 'Bhavishya <noreply@hibhavishya.in>';
-              }
-              if (senderEmail.includes('@haibhavishya.in')) {
-                return senderEmail.replace('@haibhavishya.in', '@hibhavishya.in');
-              }
-              return senderEmail;
-            }
-
             const adminEmail = map.admin_email || process.env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com';
             const resendApiKey = map.resend_api_key || process.env.RESEND_API_KEY || '';
             const senderEmail = normalizeSenderEmail(map.sender_email);
@@ -651,19 +741,25 @@ export function viteApiPlugin() {
 
             const contentRows = await queryD1('SELECT * FROM content WHERE date = ?;', [todayStr]);
             const allItems = (contentRows || []).map(mapToFrontend);
-            const items = allItems.filter(item => item.status !== 'published');
+            const pendingItems = allItems.filter(item => item.status !== 'published');
 
-            if (items.length === 0 && req.method === 'GET' && !url.searchParams.get('force')) {
+            if (pendingItems.length === 0) {
+              const reason = allItems.length > 0
+                ? `All content pieces scheduled for today (${todayStr}) are already published. No email needed.`
+                : `No content pieces are scheduled for publication today (${todayStr}). Reminder not sent.`;
+
               res.end(JSON.stringify({
                 skipped: true,
-                reason: allItems.length > 0
-                  ? `All content pieces scheduled for today (${todayStr}) are already published. No email needed.`
-                  : `No content pieces scheduled for today (${todayStr})`
+                success: true,
+                itemCount: 0,
+                today: todayStr,
+                message: reason,
+                reason
               }));
               return;
             }
 
-            const itemsToSend = items.length > 0 ? items : allItems;
+            const itemsToSend = pendingItems;
             const logId = 'nl_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
             const subject = `⏰ [Action Required] Daily Upload Reminder: ${itemsToSend.length} Post(s) to Upload Today (${todayStr})`;
 
@@ -678,7 +774,7 @@ export function viteApiPlugin() {
                 itemCount: itemsToSend.length,
                 today: todayStr,
                 recipient: adminEmail,
-                message: `Daily reminder simulated for ${itemsToSend.length} items. Add Resend API key in Settings for live inbox delivery.`
+                message: `Daily reminder simulated for ${itemsToSend.length} scheduled item(s). Add Resend API key in Settings for live inbox delivery.`
               }));
               return;
             }

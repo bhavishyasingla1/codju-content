@@ -1,7 +1,11 @@
 // Cloudflare D1 Database Client for Node.js / Local Dev
+if (typeof process !== 'undefined' && process.loadEnvFile) {
+  try { process.loadEnvFile(); } catch {}
+}
+
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '2df51fcfaedf96d9b76335ea778a08b7';
 const CF_EMAIL = process.env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com';
-const CF_API_KEY = process.env.CLOUDFLARE_API_KEY || 'cfk_Q78IYMkuzZofYFEhUrQqOcxDePw1TTU8hSlNtMwQb9e4baea';
+const CF_API_KEY = process.env.CLOUDFLARE_API_KEY || '';
 const D1_DATABASE_ID = process.env.CLOUDFLARE_D1_DATABASE_ID || '9d2fba12-d01f-4260-867f-c384937fad63';
 const R2_BUCKET_NAME = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'codju-content-assets';
 
@@ -60,7 +64,7 @@ function safeJsonParse(str, fallback) {
   if (typeof str !== 'string') return str;
   try {
     return JSON.parse(str);
-  } catch (_e) {
+  } catch {
     return fallback;
   }
 }

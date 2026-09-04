@@ -1,14 +1,18 @@
 import { createClient } from '@supabase/supabase-js';
 
+if (typeof process !== 'undefined' && process.loadEnvFile) {
+  try { process.loadEnvFile(); } catch {}
+}
+
 const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '2df51fcfaedf96d9b76335ea778a08b7';
 const CF_EMAIL = process.env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com';
-const CF_API_KEY = process.env.CLOUDFLARE_API_KEY || 'cfk_Q78IYMkuzZofYFEhUrQqOcxDePw1TTU8hSlNtMwQb9e4baea';
+const CF_API_KEY = process.env.CLOUDFLARE_API_KEY || '';
 
 const D1_DB_NAME = 'codju-content-db';
 const R2_BUCKET_NAME = 'codju-content-assets';
 
-const SUPABASE_URL = process.env.SUPABASE_URL || 'https://nbehjvipntthyttxgutt.supabase.co';
-const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im5iZWhqdmlwbnR0aHl0dHhndXR0Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MzUwMDU2OSwiZXhwIjoyMDk5MDc2NTY5fQ.kkdGUo8Rm8rplHLCbQpG5yfnx4Ei6sOLY-kGRJxvoz8';
+const SUPABASE_URL = process.env.SUPABASE_URL || '';
+const SUPABASE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY || '';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_KEY, {
   auth: { persistSession: false }

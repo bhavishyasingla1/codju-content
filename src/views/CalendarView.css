@@ -160,7 +160,24 @@
 }
 
 @media (max-width: 768px) {
+  .calendar-view {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+    padding-bottom: 8px;
+  }
+
+  .calendar-grid {
+    min-width: 600px;
+  }
+
   .calendar-grid__cell {
     min-height: 80px;
+    padding: 4px;
+  }
+
+  .calendar-grid__week-header {
+    padding: 8px 4px;
+    font-size: 11px;
   }
 }
+

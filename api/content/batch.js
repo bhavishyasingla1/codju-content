@@ -45,7 +45,7 @@ export default async function handler(req, res) {
       const reviewedAt = item.reviewedAt || null;
 
       await queryD1(`
-        INSERT INTO content (
+        INSERT OR REPLACE INTO content (
           id, date, name, type, category, summary, caption, platform, status,
           assets, rich_text, script, thumbnail_asset, pdf_asset, feedback, feedback_assets, reviewed_at, created_at, updated_at
         ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);

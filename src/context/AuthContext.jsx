@@ -1,19 +1,12 @@
+/* oxlint-disable react/only-export-components */
 import { createContext, useContext, useState, useEffect, useMemo, useCallback } from 'react';
+import { PINS, ROLES } from './authConstants';
+
+export { PINS, ROLES };
 
 const AuthContext = createContext(null);
 
 const STORAGE_KEY = 'codju_auth_role';
-
-export const PINS = {
-  DESIGNER: '1234',
-  ADMIN: '7777',
-};
-
-export const ROLES = {
-  VIEWER: 'viewer',
-  DESIGNER: 'designer',
-  ADMIN: 'admin',
-};
 
 export function AuthProvider({ children }) {
   const [role, setRole] = useState(() => {

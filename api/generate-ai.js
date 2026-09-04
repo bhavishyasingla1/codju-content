@@ -114,9 +114,41 @@ function generateSmartSchedule(prompt, year, month, category = 'social') {
   return items;
 }
 
-// Call Groq API (openai/gpt-oss-120b, openai/gpt-oss-20b, qwen/qwen3.8-27b, llama-3.3-70b-versatile)
+// Bulletproof JSON extractor that cleans markdown code fences, reasoning tokens, and extracts arrays
+function extractJsonPayload(text) {
+  if (!text || typeof text !== 'string') return null;
+  let cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  if (cleaned.includes('```')) {
+    cleaned = cleaned.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, '$1').trim();
+  }
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object') {
+      return parsed.items || parsed.schedule || parsed.posts || parsed.content || Object.values(parsed).find(Array.isArray) || null;
+    }
+  } catch {
+    const arrMatch = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    if (arrMatch) {
+      try {
+        const p = JSON.parse(arrMatch[0]);
+        if (Array.isArray(p)) return p;
+      } catch {}
+    }
+    const objMatch = cleaned.match(/\{\s*"(?:items|posts|schedule|content)"\s*:\s*\[[\s\S]*\]\s*\}/);
+    if (objMatch) {
+      try {
+        const p = JSON.parse(objMatch[0]);
+        return p.items || p.posts || p.schedule || p.content;
+      } catch {}
+    }
+  }
+  return null;
+}
+
+// Call Groq API (prioritizing openai/gpt-oss-20b, openai/gpt-oss-120b, qwen/qwen3.8-27b)
 async function callGroqApi(apiKey, prompt, systemInstruction) {
-  const models = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b', 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+  const models = ['openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b'];
   
   for (const model of models) {
     try {
@@ -142,10 +174,9 @@ async function callGroqApi(apiKey, prompt, systemInstruction) {
       if (res.ok) {
         const data = await res.json();
         const contentStr = data.choices?.[0]?.message?.content;
-        if (contentStr) {
-          const parsed = JSON.parse(contentStr);
-          // Return array if inside { items: [...] } or direct array
-          return Array.isArray(parsed) ? parsed : (parsed.items || parsed.schedule || parsed.posts || Object.values(parsed)[0]);
+        const items = extractJsonPayload(contentStr);
+        if (Array.isArray(items) && items.length > 0) {
+          return items;
         }
       }
     } catch (err) {

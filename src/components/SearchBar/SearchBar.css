@@ -67,3 +67,33 @@
   background: var(--color-primary-pale);
   color: var(--color-primary);
 }
+
+@media (max-width: 640px) {
+  .search-bar {
+    width: 140px;
+    padding: 5px 10px;
+  }
+
+  .search-bar:focus-within,
+  .search-bar--active {
+    width: 180px;
+  }
+}
+
+@media (max-width: 480px) {
+  .search-bar {
+    width: 110px;
+    padding: 4px 8px;
+    gap: 5px;
+  }
+
+  .search-bar:focus-within,
+  .search-bar--active {
+    width: 150px;
+  }
+
+  .search-bar__input {
+    font-size: var(--text-xs);
+  }
+}
+

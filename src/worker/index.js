@@ -23,7 +23,7 @@ function safeJsonParse(str, fallback) {
   if (typeof str !== 'string') return str;
   try {
     return JSON.parse(str);
-  } catch (_e) {
+  } catch {
     return fallback;
   }
 }
@@ -125,6 +125,38 @@ function generateSmartSchedule(prompt, year, month, category = 'social') {
   return items;
 }
 
+/// Bulletproof JSON extractor that cleans markdown code fences, reasoning tokens, and extracts arrays
+function extractJsonPayload(text) {
+  if (!text || typeof text !== 'string') return null;
+  let cleaned = text.replace(/<think>[\s\S]*?<\/think>/gi, '').trim();
+  if (cleaned.includes('```')) {
+    cleaned = cleaned.replace(/```(?:json)?\s*([\s\S]*?)\s*```/gi, '$1').trim();
+  }
+  try {
+    const parsed = JSON.parse(cleaned);
+    if (Array.isArray(parsed)) return parsed;
+    if (parsed && typeof parsed === 'object') {
+      return parsed.items || parsed.schedule || parsed.posts || parsed.content || Object.values(parsed).find(Array.isArray) || null;
+    }
+  } catch {
+    const arrMatch = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
+    if (arrMatch) {
+      try {
+        const p = JSON.parse(arrMatch[0]);
+        if (Array.isArray(p)) return p;
+      } catch {}
+    }
+    const objMatch = cleaned.match(/\{\s*"(?:items|posts|schedule|content)"\s*:\s*\[[\s\S]*\]\s*\}/);
+    if (objMatch) {
+      try {
+        const p = JSON.parse(objMatch[0]);
+        return p.items || p.posts || p.schedule || p.content;
+      } catch {}
+    }
+  }
+  return null;
+}
+
 // AI Content Generation Handler (supports Groq, Gemini, and OpenAI)
 async function handleGenerateAi(request, env) {
   try {
@@ -136,9 +168,20 @@ async function handleGenerateAi(request, env) {
     const mo = parseInt(month, 10) || (new Date().getMonth() + 1);
     const monthStr = `${yr}-${String(mo).padStart(2, '0')}`;
 
-    const groqKey = (userKey && userKey.startsWith('gsk_')) ? userKey : (env.GROQ_API_KEY || userKey);
-    const geminiKey = (userKey && userKey.startsWith('AIza')) ? userKey : (env.GEMINI_API_KEY || userKey);
-    const openAiKey = (userKey && userKey.startsWith('sk-')) ? userKey : (env.OPENAI_API_KEY || userKey);
+    let d1Settings = null;
+    try {
+      d1Settings = await getD1Settings(env);
+    } catch {}
+
+    const groqKey = (userKey && userKey.startsWith('gsk_'))
+      ? userKey
+      : (env.GROQ_API_KEY || d1Settings?.groqApiKey || userKey);
+    const geminiKey = (userKey && userKey.startsWith('AIza'))
+      ? userKey
+      : (env.GEMINI_API_KEY || userKey);
+    const openAiKey = (userKey && userKey.startsWith('sk-'))
+      ? userKey
+      : (env.OPENAI_API_KEY || userKey);
 
     const systemInstruction = category === 'written'
       ? `You are an expert editorial strategist. Generate a structured written editorial calendar for ${monthStr}. Return a JSON object with an "items" array where each object has: date (YYYY-MM-DD within ${monthStr}), name (catchy title), type (blog or newsletter), category (written), platform (website, medium, substack, newsletter, or linkedin), summary, caption, richText, script. Return valid JSON only.`
@@ -146,9 +189,9 @@ async function handleGenerateAi(request, env) {
 
     let generatedItems = null;
 
-    // 1. Try Groq (openai/gpt-oss-120b, openai/gpt-oss-20b, qwen/qwen3.8-27b, llama-3.3-70b-versatile)
+    // 1. Try Groq (openai/gpt-oss-20b, openai/gpt-oss-120b, qwen/qwen3.8-27b)
     if (groqKey && !generatedItems) {
-      const groqModels = ['openai/gpt-oss-120b', 'openai/gpt-oss-20b', 'qwen/qwen3.8-27b', 'llama-3.3-70b-versatile', 'llama-3.1-8b-instant'];
+      const groqModels = ['openai/gpt-oss-20b', 'openai/gpt-oss-120b', 'qwen/qwen3.8-27b'];
       for (const model of groqModels) {
         try {
           const groqRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
@@ -170,13 +213,10 @@ async function handleGenerateAi(request, env) {
           if (groqRes.ok) {
             const resData = await groqRes.json();
             const contentStr = resData.choices?.[0]?.message?.content;
-            if (contentStr) {
-              const parsed = JSON.parse(contentStr);
-              const items = Array.isArray(parsed) ? parsed : (parsed.items || parsed.content || parsed.posts || parsed.schedule);
-              if (Array.isArray(items) && items.length > 0) {
-                generatedItems = items;
-                break;
-              }
+            const items = extractJsonPayload(contentStr);
+            if (Array.isArray(items) && items.length > 0) {
+              generatedItems = items;
+              break;
             }
           } else {
             const errJson = await groqRes.json().catch(() => ({}));
@@ -209,13 +249,10 @@ async function handleGenerateAi(request, env) {
           if (res.ok) {
             const data = await res.json();
             const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-            if (text) {
-              const parsed = JSON.parse(text.trim());
-              const items = Array.isArray(parsed) ? parsed : (parsed.items || parsed.schedule || parsed.posts || Object.values(parsed)[0]);
-              if (Array.isArray(items) && items.length > 0) {
-                generatedItems = items;
-                break;
-              }
+            const items = extractJsonPayload(text);
+            if (Array.isArray(items) && items.length > 0) {
+              generatedItems = items;
+              break;
             }
           }
         } catch (err) {
@@ -246,10 +283,9 @@ async function handleGenerateAi(request, env) {
         if (res.ok) {
           const data = await res.json();
           const text = data.choices?.[0]?.message?.content;
-          if (text) {
-            const parsed = JSON.parse(text);
-            const items = Array.isArray(parsed) ? parsed : (parsed.items || parsed.schedule || parsed.posts || Object.values(parsed)[0]);
-            if (Array.isArray(items) && items.length > 0) generatedItems = items;
+          const items = extractJsonPayload(text);
+          if (Array.isArray(items) && items.length > 0) {
+            generatedItems = items;
           }
         }
       } catch (err) {
@@ -276,12 +312,12 @@ async function handleGenerateAi(request, env) {
         feedback: '',
         feedbackAssets: []
       }));
-      return jsonResponse(validated);
+      return jsonResponse({ success: true, items: validated, count: validated.length, provider: 'ai' });
     }
 
     // Fallback to rich semantic generator (zero cost, no API key needed)
     const fallbackItems = generateSmartSchedule(prompt, yr, mo, category);
-    return jsonResponse(fallbackItems);
+    return jsonResponse({ success: true, items: fallbackItems, count: fallbackItems.length, provider: 'smart_generator' });
   } catch (err) {
     return jsonResponse({ error: err.message }, 500);
   }
@@ -681,6 +717,8 @@ export default {
               senderEmail: settings.senderEmail,
               resendApiKeyConfigured: !!settings.resendApiKey,
               resendApiKeyMasked: settings.resendApiKey ? `${settings.resendApiKey.substring(0, 6)}...` : '',
+              groqApiKeyConfigured: !!settings.groqApiKey,
+              groqApiKeyMasked: settings.groqApiKey ? `${settings.groqApiKey.substring(0, 6)}...` : '',
               dailyReminderEnabled: settings.dailyReminderEnabled,
               dailyReminderTime: settings.dailyReminderTime,
             });
@@ -700,6 +738,9 @@ export default {
             if (body.resendApiKey !== undefined && body.resendApiKey.trim()) {
               updates.resend_api_key = body.resendApiKey.trim();
             }
+            if (body.groqApiKey !== undefined && body.groqApiKey.trim()) {
+              updates.groq_api_key = body.groqApiKey.trim();
+            }
             if (body.dailyReminderEnabled !== undefined) {
               updates.daily_reminder_enabled = String(body.dailyReminderEnabled);
             }
@@ -717,11 +758,54 @@ export default {
               senderEmail: updatedSettings.senderEmail,
               resendApiKeyConfigured: !!updatedSettings.resendApiKey,
               resendApiKeyMasked: updatedSettings.resendApiKey ? `${updatedSettings.resendApiKey.substring(0, 6)}...` : '',
+              groqApiKeyConfigured: !!updatedSettings.groqApiKey,
+              groqApiKeyMasked: updatedSettings.groqApiKey ? `${updatedSettings.groqApiKey.substring(0, 6)}...` : '',
               dailyReminderEnabled: updatedSettings.dailyReminderEnabled,
               dailyReminderTime: updatedSettings.dailyReminderTime,
             });
           } catch (err) {
             console.error('Error saving settings:', err);
+            return jsonResponse({ error: err.message }, 500);
+          }
+        }
+
+        return jsonResponse({ error: 'Method Not Allowed' }, 405);
+      }
+
+      // ==========================================
+      // ACTIVITY LOGS ROUTES (/api/activity-logs)
+      // ==========================================
+      if (pathname === '/api/activity-logs') {
+        if (method === 'GET') {
+          try {
+            const limit = Math.min(100, Math.max(1, parseInt(url.searchParams.get('limit') || '50', 10)));
+            const { results } = await env.DB.prepare(
+              'SELECT * FROM activity_logs ORDER BY created_at DESC LIMIT ?;'
+            ).bind(limit).all();
+            return jsonResponse({ success: true, logs: results || [] });
+          } catch (err) {
+            console.error('Error fetching activity logs:', err);
+            return jsonResponse({ success: false, logs: [], error: err.message }, 500);
+          }
+        }
+
+        if (method === 'POST') {
+          try {
+            const body = await request.json();
+            const id = 'act_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+            const action = body.action || 'system_event';
+            const actor = body.actor || 'system';
+            const itemId = body.item_id || body.itemId || null;
+            const itemName = body.item_name || body.itemName || null;
+            const details = typeof body.details === 'object' ? JSON.stringify(body.details) : (body.details || '');
+
+            await env.DB.prepare(
+              'INSERT INTO activity_logs (id, action, actor, item_id, item_name, details, created_at) VALUES (?, ?, ?, ?, ?, ?, datetime(\'now\'));'
+            ).bind(id, action, actor, itemId, itemName, details).run();
+
+            return jsonResponse({ success: true, id }, 201);
+          } catch (err) {
+            console.error('Error recording activity log:', err);
             return jsonResponse({ error: err.message }, 500);
           }
         }
@@ -747,7 +831,7 @@ export default {
       if (pathname === '/api/notifications/daily-check') {
         try {
           const appUrl = url.origin;
-          const result = await runDailyUploadCheck(env, appUrl, true);
+          const result = await runDailyUploadCheck(env, appUrl, false);
           return jsonResponse(result);
         } catch (err) {
           console.error('Error in daily upload check:', err);
@@ -984,6 +1068,7 @@ async function getD1Settings(env) {
       adminEmail: map.admin_email || env.ADMIN_EMAIL || env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com',
       designerEmail: map.designer_email || env.DESIGNER_EMAIL || 'gurpreetcodju@gmail.com',
       resendApiKey: map.resend_api_key || env.RESEND_API_KEY || '',
+      groqApiKey: map.groq_api_key || env.GROQ_API_KEY || '',
       senderEmail: normalizeSenderEmail(map.sender_email || env.SENDER_EMAIL),
       dailyReminderEnabled: map.daily_reminder_enabled !== 'false',
       dailyReminderTime: map.daily_reminder_time || '12:00',
@@ -994,6 +1079,7 @@ async function getD1Settings(env) {
       adminEmail: env.ADMIN_EMAIL || env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com',
       designerEmail: env.DESIGNER_EMAIL || 'gurpreetcodju@gmail.com',
       resendApiKey: env.RESEND_API_KEY || '',
+      groqApiKey: env.GROQ_API_KEY || '',
       senderEmail: 'Bhavishya <noreply@hibhavishya.in>',
       dailyReminderEnabled: true,
       dailyReminderTime: '12:00',
@@ -1082,12 +1168,17 @@ async function runDailyUploadCheck(env, appUrl, forceSend = false) {
   // Only alert for items that need to be published (status !== 'published')
   const pendingItems = allItems.filter(item => item.status !== 'published');
 
-  if (pendingItems.length === 0 && !forceSend) {
+  if (pendingItems.length === 0) {
+    const reason = allItems.length > 0
+      ? `All content pieces scheduled for today (${todayStr}) are already published. No email needed.`
+      : `No content pieces scheduled for today (${todayStr}). Daily reminder skipped.`;
     return {
       skipped: true,
-      reason: allItems.length > 0
-        ? `All content pieces scheduled for today (${todayStr}) are already published. No email needed.`
-        : `No content pieces scheduled for today (${todayStr})`
+      success: true,
+      itemCount: 0,
+      today: todayStr,
+      message: reason,
+      reason
     };
   }
 
@@ -1096,9 +1187,7 @@ async function runDailyUploadCheck(env, appUrl, forceSend = false) {
     return { error: 'No admin email configured for daily upload reminder' };
   }
 
-  const itemsToSend = pendingItems.length > 0
-    ? pendingItems
-    : (allItems.length > 0 ? allItems : [{ id: 'test_1', name: 'Test Content Piece', platform: 'editorial', type: 'article', status: 'ready', category: 'written' }]);
+  const itemsToSend = pendingItems;
 
   const emailContent = buildDailyUploadEmail({
     items: itemsToSend,
@@ -1442,7 +1531,6 @@ function buildDailyUploadEmail({ items = [], date, appUrl }) {
     `;
   } else {
     // All items for today were ALREADY published
-    const firstTitle = itemsAlreadyPublished[0]?.name || 'Scheduled Content';
     subject = `All posts scheduled for today (${date}) are published ✓`;
     title = `Content for today (${date})`;
     categoryLabel = `Published`;

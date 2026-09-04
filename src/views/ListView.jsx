@@ -16,7 +16,7 @@ export default function ListView({
   year,
   month,
 }) {
-  const { isViewer, isDesigner, isAdmin, openPinModal } = useAuth();
+  const { isViewer, isDesigner, isAdmin } = useAuth();
   const [expandedId, setExpandedId] = useState(null);
   const [draggedIndex, setDraggedIndex] = useState(null);
   const [customOrder, setCustomOrder] = useState(null);
@@ -128,7 +128,7 @@ export default function ListView({
           const cellIndex = Array.from(currentTr.children).indexOf(currentTd);
           const nextTr = currentTr.nextElementSibling;
           let targetTr = nextTr;
-          while (targetTr && targetTr.classList.contains('content-row__editor-row')) {
+          while (targetTr && (targetTr.classList.contains('content-row__summary-row') || targetTr.classList.contains('content-row__editor-row'))) {
             targetTr = targetTr.nextElementSibling;
           }
           if (targetTr) {
@@ -161,14 +161,13 @@ export default function ListView({
                   />
                 )}
               </th>
-              <th className="list-view__th">Date</th>
-              <th className="list-view__th">Content Name</th>
-              <th className="list-view__th">Type</th>
-              <th className="list-view__th">Summary</th>
-              <th className="list-view__th list-view__th--center">Content</th>
-              <th className="list-view__th list-view__th--center">Upload</th>
-              <th className="list-view__th list-view__th--center">View</th>
-              <th className="list-view__th">Status</th>
+              <th className="list-view__th list-view__th--date">Date</th>
+              <th className="list-view__th list-view__th--name">Content Name</th>
+              <th className="list-view__th list-view__th--type">Type</th>
+              <th className="list-view__th list-view__th--center list-view__th--summary">Summary</th>
+              <th className="list-view__th list-view__th--center list-view__th--upload">Upload</th>
+              <th className="list-view__th list-view__th--center list-view__th--view">View</th>
+              <th className="list-view__th list-view__th--status">Status</th>
             </tr>
           </thead>
           <tbody>

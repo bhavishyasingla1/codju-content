@@ -1,9 +1,35 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { fetchNotesByMonth, saveNotesByMonth } from '../../services/contentService';
 import { useAutoSave } from '../../hooks/useAutoSave';
 import { getMonthName, sanitizeUrl, safeJsonParse } from '../../utils/helpers';
 import { useAuth } from '../../context/AuthContext';
 import './MonthNotes.css';
+
+/**
+ * Detect smart domain metadata (icon, brand name, badge color)
+ */
+function getDomainMeta(urlStr) {
+  try {
+    const parsed = new URL(urlStr);
+    const host = parsed.hostname.replace(/^www\./, '').toLowerCase();
+
+    if (host.includes('notion.so') || host.includes('notion.site')) return { name: 'Notion', badge: 'Notion', icon: '📝', domain: host };
+    if (host.includes('figma.com')) return { name: 'Figma', badge: 'Figma', icon: '🎨', domain: host };
+    if (host.includes('docs.google.com')) return { name: 'Google Docs', badge: 'Docs', icon: '📄', domain: host };
+    if (host.includes('drive.google.com')) return { name: 'Google Drive', badge: 'Drive', icon: '📁', domain: host };
+    if (host.includes('sheets.google.com')) return { name: 'Google Sheets', badge: 'Sheets', icon: '📊', domain: host };
+    if (host.includes('canva.com')) return { name: 'Canva', badge: 'Canva', icon: '✨', domain: host };
+    if (host.includes('chatgpt.com') || host.includes('openai.com')) return { name: 'ChatGPT', badge: 'ChatGPT', icon: '🤖', domain: host };
+    if (host.includes('linkedin.com')) return { name: 'LinkedIn', badge: 'LinkedIn', icon: '💼', domain: host };
+    if (host.includes('twitter.com') || host.includes('x.com')) return { name: 'X', badge: 'X', icon: '🐦', domain: host };
+    if (host.includes('youtube.com') || host.includes('youtu.be')) return { name: 'YouTube', badge: 'YouTube', icon: '▶️', domain: host };
+    if (host.includes('github.com')) return { name: 'GitHub', badge: 'GitHub', icon: '🐙', domain: host };
+
+    return { name: host, badge: host.split('.')[0] || 'Web', icon: '🔗', domain: host };
+  } catch {
+    return { name: 'Resource Link', badge: 'Web', icon: '🔗', domain: urlStr };
+  }
+}
 
 /**
  * Safely parse existing notes content into links and text body
@@ -38,7 +64,7 @@ function parseNotesPayload(raw) {
         if (!title) {
           try {
             const urlObj = new URL(urlMatch[0]);
-            title = urlObj.hostname.replace('www.', '');
+            title = urlObj.hostname.replace(/^www\./, '');
           } catch {
             title = 'Resource Link';
           }
@@ -67,8 +93,9 @@ function parseNotesPayload(raw) {
 
 export default function MonthNotes({ year, month, category = 'social' }) {
   const { isAdmin, openPinModal } = useAuth();
+  const isWritten = category === 'written';
   const baseKey = `${year}-${String(month).padStart(2, '0')}`;
-  const monthKey = category === 'written' ? `${baseKey}-written` : `${baseKey}-social`;
+  const monthKey = isWritten ? `${baseKey}-written` : `${baseKey}-social`;
   const cacheKey = `codju_notes_cache_${monthKey}`;
 
   // Instant SWR Cache
@@ -112,9 +139,19 @@ export default function MonthNotes({ year, month, category = 'social' }) {
   const [isAddingLink, setIsAddingLink] = useState(false);
   const [newTitle, setNewTitle] = useState('');
   const [newUrl, setNewUrl] = useState('');
+  const [urlError, setUrlError] = useState('');
   const [copiedLinkId, setCopiedLinkId] = useState(null);
 
   const titleInputRef = useRef(null);
+  const textareaRef = useRef(null);
+
+  // Word & Character count calculation
+  const stats = useMemo(() => {
+    const trimmed = notes.trim();
+    const words = trimmed ? trimmed.split(/\s+/).length : 0;
+    const chars = notes.length;
+    return { words, chars };
+  }, [notes]);
 
   // Helper to persist cache
   const persistNotesCache = useCallback((rawNotes) => {
@@ -178,7 +215,7 @@ export default function MonthNotes({ year, month, category = 'social' }) {
       if (document.visibilityState === 'visible' && !isTypingRef.current && isMounted) {
         loadNotes(true);
       }
-    }, 4000);
+    }, 5000);
 
     const handleFocus = () => {
       if (document.visibilityState === 'visible' && !isTypingRef.current && isMounted) {
@@ -205,7 +242,7 @@ export default function MonthNotes({ year, month, category = 'social' }) {
     await saveNotesByMonth(year, month, payload, category);
   }, [year, month, category, links, notes, isAdmin, persistNotesCache]);
 
-  const { saveStatus, triggerSave } = useAutoSave(saveFunction, 2000);
+  const { saveStatus, triggerSave } = useAutoSave(saveFunction, 1800);
 
   const handleNotesChange = (e) => {
     if (!isAdmin) {
@@ -230,22 +267,34 @@ export default function MonthNotes({ year, month, category = 'social' }) {
     setIsAddingLink(true);
     setNewTitle('');
     setNewUrl('');
-    setTimeout(() => titleInputRef.current?.focus(), 50);
+    setUrlError('');
+    setTimeout(() => titleInputRef.current?.focus(), 60);
   };
 
   const handleCancelAddLink = () => {
     setIsAddingLink(false);
     setNewTitle('');
     setNewUrl('');
+    setUrlError('');
   };
 
   const handleConfirmAddLink = (e) => {
     e?.preventDefault();
-    if (!newUrl.trim()) return;
+    setUrlError('');
 
-    const validatedUrl = sanitizeUrl(newUrl.trim());
+    let rawInput = newUrl.trim();
+    if (!rawInput) {
+      setUrlError('URL is required');
+      return;
+    }
+
+    if (!/^https?:\/\//i.test(rawInput)) {
+      rawInput = 'https://' + rawInput;
+    }
+
+    const validatedUrl = sanitizeUrl(rawInput);
     if (!validatedUrl) {
-      alert('Please enter a valid website URL (e.g. https://notion.so/doc)');
+      setUrlError('Please enter a valid URL (e.g. https://notion.so/doc)');
       return;
     }
 
@@ -253,9 +302,9 @@ export default function MonthNotes({ year, month, category = 'social' }) {
     if (!resolvedTitle) {
       try {
         const urlObj = new URL(validatedUrl);
-        resolvedTitle = urlObj.hostname.replace('www.', '');
+        resolvedTitle = urlObj.hostname.replace(/^www\./, '');
       } catch {
-        resolvedTitle = 'Link ' + (links.length + 1);
+        resolvedTitle = 'Resource ' + (links.length + 1);
       }
     }
 
@@ -263,12 +312,14 @@ export default function MonthNotes({ year, month, category = 'social' }) {
       id: 'l_' + Date.now().toString(36) + Math.random().toString(36).substr(2, 5),
       title: resolvedTitle,
       url: validatedUrl,
+      addedAt: new Date().toISOString(),
     };
 
     setLinks(prev => [...prev, newLink]);
     setIsAddingLink(false);
     setNewTitle('');
     setNewUrl('');
+    setUrlError('');
     triggerSave();
   };
 
@@ -284,41 +335,45 @@ export default function MonthNotes({ year, month, category = 'social' }) {
     setTimeout(() => setCopiedLinkId(null), 2000);
   };
 
-  const getDomain = (urlStr) => {
-    try {
-      const parsed = new URL(urlStr);
-      return parsed.hostname.replace('www.', '');
-    } catch {
-      return urlStr;
-    }
-  };
-
   return (
-    <div className="month-notes-card animate-fade-in-up">
-      {/* Card Header */}
+    <section className="month-notes-card animate-fade-in-up" aria-label="Month Resource Links and Notes">
+      {/* Card Master Header */}
       <div className="month-notes-card__header">
         <div className="month-notes-card__title-group">
-          <svg className="month-notes-card__icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-            <polyline points="14 2 14 8 20 8" />
-            <line x1="16" y1="13" x2="8" y2="13" />
-            <line x1="16" y1="17" x2="8" y2="17" />
-            <polyline points="10 9 9 9 8 9" />
-          </svg>
-          <h3 className="month-notes-card__title">
-            {category === 'written' ? '✍️ Written Content Resource Links & Notes' : '📱 Social Content Resource Links & Notes'} — {getMonthName(month)} {year}
-          </h3>
+          <span className={`month-notes-card__category-badge month-notes-card__category-badge--${category}`}>
+            {isWritten ? '✍️ Written Content' : '📱 Social Content'}
+          </span>
+          <div className="month-notes-card__heading-text">
+            <h3 className="month-notes-card__title">
+              Resource Hub &amp; Strategic Notes
+            </h3>
+            <span className="month-notes-card__period">
+              {getMonthName(month)} {year}
+            </span>
+          </div>
         </div>
 
-        {saveStatus !== 'idle' && (
-          <span className={`month-notes-card__save-status month-notes-card__save-status--${saveStatus}`}>
-            {saveStatus === 'saving' && 'Auto-saving...'}
-            {saveStatus === 'saved' && 'Saved ✓'}
-            {saveStatus === 'error' && 'Save failed ❌'}
-          </span>
-        )}
+        {/* Header Right Status */}
+        <div className="month-notes-card__status-wrap">
+          {saveStatus !== 'idle' && (
+            <div className={`month-notes-card__save-pill month-notes-card__save-pill--${saveStatus}`}>
+              <span className="month-notes-card__save-dot" />
+              <span>
+                {saveStatus === 'saving' && 'Auto-saving...'}
+                {saveStatus === 'saved' && 'Saved'}
+                {saveStatus === 'error' && 'Save error'}
+              </span>
+            </div>
+          )}
+          {!isAdmin && (
+            <span className="month-notes-card__viewer-pill" title="Admin PIN required to edit">
+              🔒 Viewer Mode
+            </span>
+          )}
+        </div>
       </div>
 
+      {/* Main Body */}
       <div className="month-notes-card__body">
         {loading ? (
           <div className="month-notes-card__loading">
@@ -327,29 +382,35 @@ export default function MonthNotes({ year, month, category = 'social' }) {
         ) : error ? (
           <div className="month-notes-card__error">{error}</div>
         ) : (
-          <>
-            {/* Subsection 1: Links with Title Boxes */}
-            <div className="month-notes__section">
-              <div className="month-notes__section-header">
-                <div className="month-notes__section-title-wrap">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
-                    <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
-                  </svg>
-                  <h4 className="month-notes__section-title">
-                    {category === 'written' ? 'Article Links & Research References' : 'Reference Links & Inspiration'}
-                  </h4>
-                  <span className="month-notes__count-badge">{links.length}</span>
+          <div className="month-notes-grid">
+            {/* LEFT COLUMN: REFERENCE & ASSET LINKS */}
+            <div className="month-notes__column month-notes__column--links">
+              <div className="month-notes__panel-header">
+                <div className="month-notes__panel-title-wrap">
+                  <div className="month-notes__icon-circle month-notes__icon-circle--blue">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                      <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="month-notes__panel-title">
+                      {isWritten ? 'Reference Links & Articles' : 'Inspiration & Asset Links'}
+                    </h4>
+                    <span className="month-notes__panel-sub">
+                      {links.length} {links.length === 1 ? 'link' : 'links'} pinned
+                    </span>
+                  </div>
                 </div>
 
                 {!isAddingLink && (
                   <button
-                    className="month-notes__add-btn"
+                    className="month-notes__action-btn"
                     onClick={handleStartAddLink}
                     type="button"
                     title="Add a new resource link"
                   >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                       <line x1="12" y1="5" x2="12" y2="19" />
                       <line x1="5" y1="12" x2="19" y2="12" />
                     </svg>
@@ -360,138 +421,215 @@ export default function MonthNotes({ year, month, category = 'social' }) {
 
               {/* Add Link Form */}
               {isAddingLink && (
-                <form onSubmit={handleConfirmAddLink} className="month-notes__add-link-form animate-scale-in">
-                  <div className="month-notes__form-row">
-                    <input
-                      ref={titleInputRef}
-                      type="text"
-                      className="month-notes__form-input"
-                      value={newTitle}
-                      onChange={(e) => setNewTitle(e.target.value)}
-                      placeholder="Link Title (e.g. ChatGPT Prompt Thread, Medium Outline)"
-                    />
-                    <input
-                      type="text"
-                      className="month-notes__form-input"
-                      value={newUrl}
-                      onChange={(e) => setNewUrl(e.target.value)}
-                      placeholder="URL (e.g. https://chatgpt.com/...)"
-                      required
-                    />
+                <form onSubmit={handleConfirmAddLink} className="month-notes__form-card animate-scale-in">
+                  <div className="month-notes__form-header">
+                    <span className="month-notes__form-title">Add Reference Link</span>
+                    <button
+                      type="button"
+                      className="month-notes__form-close"
+                      onClick={handleCancelAddLink}
+                      aria-label="Close add link form"
+                    >
+                      &times;
+                    </button>
                   </div>
-                  <div className="month-notes__form-actions">
+
+                  <div className="month-notes__form-inputs">
+                    <div className="month-notes__form-field">
+                      <label className="month-notes__field-label">Link Title</label>
+                      <input
+                        ref={titleInputRef}
+                        type="text"
+                        className="month-notes__input"
+                        value={newTitle}
+                        onChange={(e) => setNewTitle(e.target.value)}
+                        placeholder="e.g. ChatGPT Prompt, Notion Board, Design Doc"
+                      />
+                    </div>
+
+                    <div className="month-notes__form-field">
+                      <label className="month-notes__field-label">
+                        Destination URL <span className="month-notes__required">*</span>
+                      </label>
+                      <input
+                        type="text"
+                        className={`month-notes__input ${urlError ? 'month-notes__input--error' : ''}`}
+                        value={newUrl}
+                        onChange={(e) => {
+                          setNewUrl(e.target.value);
+                          if (urlError) setUrlError('');
+                        }}
+                        placeholder="e.g. https://notion.so/... or figma.com/file/..."
+                        required
+                      />
+                      {urlError && <span className="month-notes__error-text">{urlError}</span>}
+                    </div>
+                  </div>
+
+                  <div className="month-notes__form-footer">
                     <button
                       type="button"
                       onClick={handleCancelAddLink}
-                      className="month-notes__form-btn month-notes__form-btn--cancel"
+                      className="month-notes__btn month-notes__btn--cancel"
                     >
                       Cancel
                     </button>
                     <button
                       type="submit"
                       disabled={!newUrl.trim()}
-                      className="month-notes__form-btn month-notes__form-btn--submit"
+                      className="month-notes__btn month-notes__btn--submit"
                     >
-                      Add Link
+                      Save Link
                     </button>
                   </div>
                 </form>
               )}
 
-              {/* Links Grid */}
-              <div className="month-notes__links-grid">
-                {links.map((link) => (
-                  <div key={link.id} className="month-notes__link-card animate-scale-in">
-                    <div className="month-notes__link-content">
-                      <span className="month-notes__link-title" title={link.title}>
-                        {link.title}
-                      </span>
-                      <a
-                        href={link.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="month-notes__link-url"
-                        title={link.url}
-                      >
-                        <span>{getDomain(link.url)}</span>
-                        <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                          <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
-                          <polyline points="15 3 21 3 21 9" />
-                          <line x1="10" y1="14" x2="21" y2="3" />
-                        </svg>
-                      </a>
+              {/* Links List / Empty State */}
+              <div className="month-notes__links-wrapper">
+                {links.length === 0 ? (
+                  <div className="month-notes__empty-links">
+                    <div className="month-notes__empty-icon">
+                      <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+                        <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+                      </svg>
                     </div>
-
-                    <div className="month-notes__link-actions">
+                    <p className="month-notes__empty-title">No links saved for this month yet</p>
+                    <p className="month-notes__empty-desc">
+                      Keep your prompt threads, Canva designs, Google Docs, or research bookmarks organized here.
+                    </p>
+                    {!isAddingLink && (
                       <button
-                        className="month-notes__link-btn"
-                        onClick={() => handleCopyLink(link)}
-                        title="Copy link URL"
                         type="button"
+                        className="month-notes__empty-cta"
+                        onClick={handleStartAddLink}
                       >
-                        {copiedLinkId === link.id ? (
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="#22C55E" strokeWidth="2.5">
-                            <polyline points="20 6 9 17 4 12" />
-                          </svg>
-                        ) : (
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
-                            <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                          </svg>
-                        )}
+                        + Add First Link
                       </button>
-
-                      {isAdmin && (
-                        <button
-                          className="month-notes__link-btn month-notes__link-btn--delete"
-                          onClick={() => handleDeleteLink(link.id)}
-                          title="Delete link"
-                          type="button"
-                        >
-                          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                            <line x1="18" y1="6" x2="6" y2="18" />
-                            <line x1="6" y1="6" x2="18" y2="18" />
-                          </svg>
-                        </button>
-                      )}
-                    </div>
+                    )}
                   </div>
-                ))}
+                ) : (
+                  <div className="month-notes__links-stack">
+                    {links.map((link) => {
+                      const meta = getDomainMeta(link.url);
+                      return (
+                        <div key={link.id} className="month-notes__link-row animate-scale-in">
+                          <div className="month-notes__domain-badge" title={meta.name}>
+                            <span className="month-notes__domain-emoji">{meta.icon}</span>
+                            <span className="month-notes__domain-name">{meta.badge}</span>
+                          </div>
+
+                          <div className="month-notes__link-meta">
+                            <span className="month-notes__link-title" title={link.title}>
+                              {link.title}
+                            </span>
+                            <span className="month-notes__link-host">
+                              {meta.domain}
+                            </span>
+                          </div>
+
+                          <div className="month-notes__link-actions">
+                            {/* Copy URL Button */}
+                            <button
+                              className={`month-notes__icon-btn ${copiedLinkId === link.id ? 'month-notes__icon-btn--copied' : ''}`}
+                              onClick={() => handleCopyLink(link)}
+                              title={copiedLinkId === link.id ? 'Copied to clipboard!' : 'Copy link URL'}
+                              type="button"
+                            >
+                              {copiedLinkId === link.id ? (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#16A34A" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                  <polyline points="20 6 9 17 4 12" />
+                                </svg>
+                              ) : (
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                  <rect x="9" y="9" width="13" height="13" rx="2" ry="2" />
+                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                </svg>
+                              )}
+                            </button>
+
+                            {/* Open in Tab Button */}
+                            <a
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="month-notes__icon-btn month-notes__icon-btn--external"
+                              title="Open link in new tab"
+                            >
+                              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+                                <polyline points="15 3 21 3 21 9" />
+                                <line x1="10" y1="14" x2="21" y2="3" />
+                              </svg>
+                            </a>
+
+                            {/* Delete Link Button */}
+                            {isAdmin && (
+                              <button
+                                className="month-notes__icon-btn month-notes__icon-btn--delete"
+                                onClick={() => handleDeleteLink(link.id)}
+                                title="Delete link"
+                                type="button"
+                              >
+                                <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                  <line x1="18" y1="6" x2="6" y2="18" />
+                                  <line x1="6" y1="6" x2="18" y2="18" />
+                                </svg>
+                              </button>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
             </div>
 
-            {/* Subsection 2: Dedicated Month Notes Box */}
-            <div className="month-notes__section">
-              <div className="month-notes__section-header">
-                <div className="month-notes__section-title-wrap">
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M12 20h9" />
-                    <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
-                  </svg>
-                  <h4 className="month-notes__section-title">
-                    {category === 'written' ? 'Editorial Strategy & Blog Outlines' : 'Social Campaign Strategy & Hook Notes'}
-                  </h4>
+            {/* RIGHT COLUMN: STRATEGY & CREATIVE NOTES */}
+            <div className="month-notes__column month-notes__column--notes">
+              <div className="month-notes__panel-header">
+                <div className="month-notes__panel-title-wrap">
+                  <div className="month-notes__icon-circle month-notes__icon-circle--purple">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4L16.5 3.5z" />
+                    </svg>
+                  </div>
+                  <div>
+                    <h4 className="month-notes__panel-title">
+                      {isWritten ? 'Editorial Strategy & Outlines' : 'Campaign Strategy & Prompts'}
+                    </h4>
+                    <span className="month-notes__panel-sub">
+                      {stats.words} words • {stats.chars} characters
+                    </span>
+                  </div>
                 </div>
               </div>
 
-              <textarea
-                className="month-notes-card__textarea"
-                value={notes}
-                onChange={handleNotesChange}
-                placeholder={
-                  isAdmin
-                    ? (category === 'written'
-                        ? `Write your editorial themes, newsletter topics, SEO keywords, or blog outlines for ${getMonthName(month)} ${year}...`
-                        : `Write your campaign goals, brand guidelines, content prompts, or ideas for ${getMonthName(month)} ${year}...`)
-                    : `${category === 'written' ? 'Written content' : 'Social content'} strategy & notes for ${getMonthName(month)} ${year} (Admin access required to edit)`
-                }
-                rows={6}
-                readOnly={!isAdmin}
-              />
+              {/* Textarea or Read-Only Viewer */}
+              <div className="month-notes__textarea-container">
+                <textarea
+                  ref={textareaRef}
+                  className="month-notes__textarea"
+                  value={notes}
+                  onChange={handleNotesChange}
+                  placeholder={
+                    isAdmin
+                      ? (isWritten
+                          ? `Draft your editorial themes, newsletter topics, target SEO keywords, or blog outlines for ${getMonthName(month)} ${year}...`
+                          : `Write your social campaign goals, brand guidelines, content hooks, or creative ideas for ${getMonthName(month)} ${year}...`)
+                      : `${isWritten ? 'Written content' : 'Social content'} strategy & notes for ${getMonthName(month)} ${year} (Admin access required to edit)`
+                  }
+                  rows={8}
+                  readOnly={!isAdmin}
+                />
+              </div>
             </div>
-          </>
+          </div>
         )}
       </div>
-    </div>
+    </section>
   );
 }

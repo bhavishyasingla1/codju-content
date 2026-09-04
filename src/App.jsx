@@ -13,12 +13,13 @@ import ContentEditor from './components/ContentEditor/ContentEditor';
 import MonthNotes from './components/MonthNotes/MonthNotes';
 import UndoToast from './components/UndoToast/UndoToast';
 import { AuthProvider, useAuth } from './context/AuthContext';
-import { getMonthName, safeJsonParse } from './utils/helpers';
+import { getMonthName, safeJsonParse, getEffectiveStatus } from './utils/helpers';
 import ErrorBoundary from './components/ErrorBoundary';
 import SettingsModal from './components/SettingsModal/SettingsModal';
 import ViewToggle from './components/ViewToggle/ViewToggle';
 import NotificationToast from './components/NotificationToast/NotificationToast';
 import MonthNotifyModal from './components/MonthNotifyModal/MonthNotifyModal';
+import StatusFilterBar from './components/StatusFilterBar/StatusFilterBar';
 import { fetchSettings, sendNotification } from './services/notificationService';
 import './App.css';
 
@@ -35,6 +36,7 @@ function MainApp() {
   const [month, setMonth] = useState(() => currentDate.getMonth() + 1);
   const [view, setView] = useState('list'); // 'list' | 'grid' | 'calendar'
   const [activeCategory, setActiveCategory] = useState('social'); // 'social' | 'written'
+  const [statusFilter, setStatusFilter] = useState('all');
 
   // Service CRUD Hook with Undo / Redo
   const {
@@ -56,6 +58,11 @@ function MainApp() {
     lastRedoAction,
   } = useContent(year, month);
 
+  // Reset status filter when switching category or month
+  useEffect(() => {
+    setStatusFilter('all');
+  }, [activeCategory, year, month]);
+
   // Filter content by current active category (Social vs Written)
   const categoryContent = useMemo(() => {
     return content.filter(item => (item.category || 'social') === activeCategory);
@@ -73,6 +80,10 @@ function MainApp() {
   // Track sent month brief signatures in localStorage
   const [sentMonthBriefs, setSentMonthBriefs] = useState(() => {
     return safeJsonParse(localStorage.getItem('codju_sent_month_briefs'), {});
+  });
+
+  const [designerNotifiedMonth, setDesignerNotifiedMonth] = useState(() => {
+    return safeJsonParse(localStorage.getItem('codju_designer_notified_month'), {});
   });
 
   // Social content items specifically for the selected month
@@ -93,6 +104,18 @@ function MainApp() {
     sentMonthBriefs[monthKey] === currentMonthSignature
   );
 
+  const hasDeliverablesChangedSinceSent = Boolean(
+    currentMonthSignature &&
+    sentMonthBriefs[monthKey] &&
+    sentMonthBriefs[monthKey] !== currentMonthSignature
+  );
+
+  const isDesignerMonthNotified = Boolean(
+    currentMonthSignature &&
+    designerNotifiedMonth[monthKey] &&
+    designerNotifiedMonth[monthKey] === currentMonthSignature
+  );
+
   // Send Month to Designer button:
   // ONLY comes once content for that month has been created/generated (> 0 items),
   // and once sent, it does NOT come again unless rows are added or removed!
@@ -101,13 +124,33 @@ function MainApp() {
     currentMonthSocialItems.length > 0 &&
     !isCurrentMonthBriefSent;
 
-  // Search Hook on filtered category items
+  // Status counts for pipeline filtering
+  const statusCounts = useMemo(() => {
+    const counts = { all: categoryContent.length, draft: 0, pending: 0, revision: 0, ready: 0, published: 0 };
+    const isWritten = activeCategory === 'written';
+    for (const item of categoryContent) {
+      const s = getEffectiveStatus(item, isWritten);
+      if (counts[s] !== undefined) {
+        counts[s]++;
+      }
+    }
+    return counts;
+  }, [categoryContent, activeCategory]);
+
+  // Filter content by current status filter before searching
+  const filteredByStatus = useMemo(() => {
+    if (statusFilter === 'all') return categoryContent;
+    const isWritten = activeCategory === 'written';
+    return categoryContent.filter(item => getEffectiveStatus(item, isWritten) === statusFilter);
+  }, [categoryContent, statusFilter, activeCategory]);
+
+  // Search Hook on filtered category + status items
   const {
     query: searchQuery,
     setQuery: setSearchQuery,
     filteredContent,
     clearSearch,
-  } = useSearch(categoryContent);
+  } = useSearch(filteredByStatus);
 
   // Modals state
   const [editingItem, setEditingItem] = useState(null);
@@ -509,6 +552,13 @@ function MainApp() {
         })),
       });
       showToast(res.message || 'Admin notified that all month designs are ready for review!');
+      if (currentMonthSignature) {
+        setDesignerNotifiedMonth(prev => {
+          const next = { ...prev, [monthKey]: currentMonthSignature };
+          localStorage.setItem('codju_designer_notified_month', JSON.stringify(next));
+          return next;
+        });
+      }
     } catch (err) {
       showToast(`Failed to notify admin: ${err.message}`, true);
     }
@@ -571,7 +621,42 @@ function MainApp() {
             {/* ADMIN ACTIONS: Kickoff Month notification, History, & AI Generation */}
             {isAdmin && (
               <>
-                {canSendMonthToDesigner && (
+                {activeCategory === 'social' && isCurrentMonthBriefSent && (
+                  <div className="app-main__brief-sent-group">
+                    <span className="app-main__brief-sent-badge" title="Month deliverables brief has been dispatched to Designer via email">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      <span>Brief Sent to Designer</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="app-main__resend-brief-btn"
+                      onClick={() => setIsMonthNotifyOpen(true)}
+                      title="Resend or update brief email to Designer"
+                    >
+                      <span>Resend</span>
+                    </button>
+                  </div>
+                )}
+
+                {activeCategory === 'social' && !isCurrentMonthBriefSent && hasDeliverablesChangedSinceSent && (
+                  <button
+                    type="button"
+                    className="app-main__notify-designer-btn app-main__notify-designer-btn--updated"
+                    onClick={() => setIsMonthNotifyOpen(true)}
+                    title="Deliverables changed since last brief was sent. Click to send updated brief."
+                  >
+                    <span className="app-main__pulse-dot" />
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                      <polyline points="22,6 12,13 2,6" />
+                    </svg>
+                    <span>Send Updated Brief</span>
+                  </button>
+                )}
+
+                {canSendMonthToDesigner && !hasDeliverablesChangedSinceSent && (
                   <button
                     type="button"
                     className="app-main__notify-designer-btn"
@@ -647,18 +732,38 @@ function MainApp() {
                   </svg>
                   <span>Designer Mode</span>
                 </span>
-                <button
-                  type="button"
-                  className="app-main__notify-admin-btn"
-                  onClick={handleDesignerNotifyMonthReady}
-                  title="Notify Admin via email that all designs for this month are uploaded & ready for review"
-                >
-                  <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                    <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
-                    <polyline points="22,6 12,13 2,6" />
-                  </svg>
-                  <span>Notify Admin: Month Designs Ready</span>
-                </button>
+
+                {isDesignerMonthNotified ? (
+                  <div className="app-main__designer-notified-group">
+                    <span className="app-main__designer-notified-badge" title="Admin has been notified that all month designs are ready">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                        <polyline points="20 6 9 17 4 12" />
+                      </svg>
+                      <span>Admin Notified</span>
+                    </span>
+                    <button
+                      type="button"
+                      className="app-main__resend-brief-btn"
+                      onClick={handleDesignerNotifyMonthReady}
+                      title="Re-notify Admin that designs are ready"
+                    >
+                      <span>Re-notify</span>
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    className="app-main__notify-admin-btn"
+                    onClick={handleDesignerNotifyMonthReady}
+                    title="Notify Admin via email that all designs for this month are uploaded & ready for review"
+                  >
+                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z" />
+                      <polyline points="22,6 12,13 2,6" />
+                    </svg>
+                    <span>Notify Admin: Month Designs Ready</span>
+                  </button>
+                )}
               </div>
             )}
 
@@ -681,6 +786,16 @@ function MainApp() {
             )}
           </div>
         </div>
+
+        {/* Workflow Pipeline Status Filter Bar */}
+        {categoryContent.length > 0 && (
+          <StatusFilterBar
+            activeFilter={statusFilter}
+            onFilterChange={setStatusFilter}
+            counts={statusCounts}
+            category={activeCategory}
+          />
+        )}
 
         {loading ? (
           <LoadingSkeleton view={view} />
@@ -706,8 +821,167 @@ function MainApp() {
               <span>Retry Connection</span>
             </button>
           </div>
-        ) : filteredContent.length === 0 && !searchQuery ? (
+        ) : categoryContent.length === 0 ? (
           <EmptyState onCreateFirst={handleCreateNew} />
+        ) : filteredContent.length === 0 ? (
+          <div className="app-main__empty-filter animate-fade-in" role="status">
+            {searchQuery ? (
+              <>
+                <div className="app-main__empty-filter-icon app-main__empty-filter-icon--search">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="11" cy="11" r="8" />
+                    <line x1="21" y1="21" x2="16.65" y2="16.65" />
+                  </svg>
+                </div>
+                <h3 className="app-main__empty-filter-title">
+                  No matching items for "{searchQuery}"
+                </h3>
+                <p className="app-main__empty-filter-desc">
+                  We couldn't find any deliverables matching your search query in {getMonthName(month)} {year}.
+                </p>
+                <div className="app-main__empty-filter-actions">
+                  <button
+                    type="button"
+                    className="app-main__empty-filter-btn app-main__empty-filter-btn--primary"
+                    onClick={clearSearch}
+                  >
+                    Clear Search
+                  </button>
+                  <button
+                    type="button"
+                    className="app-main__empty-filter-btn"
+                    onClick={() => {
+                      clearSearch();
+                      setStatusFilter('all');
+                    }}
+                  >
+                    Show All Content ({categoryContent.length})
+                  </button>
+                </div>
+              </>
+            ) : statusFilter === 'draft' ? (
+              <>
+                <div className="app-main__empty-filter-icon app-main__empty-filter-icon--draft">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                    <polyline points="14 2 14 8 20 8" />
+                    <line x1="16" y1="13" x2="8" y2="13" />
+                    <line x1="16" y1="17" x2="8" y2="17" />
+                  </svg>
+                </div>
+                <h3 className="app-main__empty-filter-title">No Drafts in Progress</h3>
+                <p className="app-main__empty-filter-desc">
+                  All deliverables for {getMonthName(month)} {year} have progressed beyond draft, or new posts haven't been created yet.
+                </p>
+                <div className="app-main__empty-filter-actions">
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      className="app-main__empty-filter-btn app-main__empty-filter-btn--primary"
+                      onClick={handleCreateNew}
+                    >
+                      + Create New Post
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="app-main__empty-filter-btn"
+                    onClick={() => setStatusFilter('all')}
+                  >
+                    Show All Deliverables ({categoryContent.length})
+                  </button>
+                </div>
+              </>
+            ) : statusFilter === 'pending' ? (
+              <>
+                <div className="app-main__empty-filter-icon app-main__empty-filter-icon--pending">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <polyline points="12 6 12 12 16 14" />
+                  </svg>
+                </div>
+                <h3 className="app-main__empty-filter-title">No Deliverables in Review</h3>
+                <p className="app-main__empty-filter-desc">
+                  There are currently no items waiting for review or approval. When assets are uploaded, they will appear here.
+                </p>
+                <div className="app-main__empty-filter-actions">
+                  <button
+                    type="button"
+                    className="app-main__empty-filter-btn"
+                    onClick={() => setStatusFilter('all')}
+                  >
+                    Show All Deliverables ({categoryContent.length})
+                  </button>
+                </div>
+              </>
+            ) : statusFilter === 'revision' ? (
+              <>
+                <div className="app-main__empty-filter-icon app-main__empty-filter-icon--revision">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                  </svg>
+                </div>
+                <h3 className="app-main__empty-filter-title">No Changes Requested</h3>
+                <p className="app-main__empty-filter-desc">
+                  Great work! All designs are on track and none of the posts in this month currently require rectification or revisions.
+                </p>
+                <div className="app-main__empty-filter-actions">
+                  <button
+                    type="button"
+                    className="app-main__empty-filter-btn"
+                    onClick={() => setStatusFilter('all')}
+                  >
+                    Show All Deliverables ({categoryContent.length})
+                  </button>
+                </div>
+              </>
+            ) : statusFilter === 'ready' ? (
+              <>
+                <div className="app-main__empty-filter-icon app-main__empty-filter-icon--ready">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M12 2l3.09 6.26L22 9.27l-5 4.87 1.18 6.88L12 17.77l-6.18 3.25L7 14.14 2 9.27l6.91-1.01L12 2z" />
+                  </svg>
+                </div>
+                <h3 className="app-main__empty-filter-title">No Items Approved & Ready</h3>
+                <p className="app-main__empty-filter-desc">
+                  Posts and written articles that have been verified and approved by Admin ready for release will be listed here.
+                </p>
+                <div className="app-main__empty-filter-actions">
+                  <button
+                    type="button"
+                    className="app-main__empty-filter-btn"
+                    onClick={() => setStatusFilter('all')}
+                  >
+                    Show All Deliverables ({categoryContent.length})
+                  </button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="app-main__empty-filter-icon app-main__empty-filter-icon--published">
+                  <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <line x1="2" y1="12" x2="22" y2="12" />
+                    <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z" />
+                  </svg>
+                </div>
+                <h3 className="app-main__empty-filter-title">No Published Deliverables Yet</h3>
+                <p className="app-main__empty-filter-desc">
+                  Items marked as published will be archived and accessible here.
+                </p>
+                <div className="app-main__empty-filter-actions">
+                  <button
+                    type="button"
+                    className="app-main__empty-filter-btn"
+                    onClick={() => setStatusFilter('all')}
+                  >
+                    Show All Deliverables ({categoryContent.length})
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
         ) : (
           <>
             {view === 'list' && (

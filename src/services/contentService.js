@@ -106,6 +106,11 @@ export async function createContent(contentData) {
 
   const created = await response.json();
   broadcastLiveEvent('CONTENT_CREATED', created);
+  logActivity('CONTENT_CREATED', 'admin', {
+    itemId: created.id,
+    itemName: created.name || 'Untitled',
+    details: `Created content scheduled for ${created.date || 'calendar'}`
+  });
   return created;
 }
 
@@ -131,6 +136,29 @@ export async function updateContent(id, updates) {
 
   const updated = await response.json();
   broadcastLiveEvent('CONTENT_UPDATED', updated);
+
+  // Log activity with descriptive context
+  if (updates.status) {
+    const actor = updates.designerUpdated ? 'designer' : 'admin';
+    logActivity('STATUS_CHANGE', actor, {
+      itemId: id,
+      itemName: updated.name || 'Content Item',
+      details: `Status changed to ${updates.status}`
+    });
+  } else if (updates.assetUrl) {
+    logActivity('ASSET_UPLOAD', 'designer', {
+      itemId: id,
+      itemName: updated.name || 'Content Item',
+      details: `Uploaded design file ${updates.assetName || ''}`
+    });
+  } else {
+    logActivity('CONTENT_UPDATED', 'admin', {
+      itemId: id,
+      itemName: updated.name || 'Content Item',
+      details: `Updated details for ${updated.name || id}`
+    });
+  }
+
   return updated;
 }
 
@@ -151,6 +179,10 @@ export async function deleteContent(id) {
 
   const result = await response.json();
   broadcastLiveEvent('CONTENT_DELETED', { id });
+  logActivity('CONTENT_DELETED', 'admin', {
+    itemId: id,
+    details: 'Deleted content item from calendar'
+  });
   return result.success;
 }
 
@@ -191,6 +223,9 @@ export async function uploadAsset(file) {
     }
 
     const data = await response.json();
+    logActivity('ASSET_UPLOAD', 'designer', {
+      details: `Uploaded asset: ${file.name} (${(file.size / 1024).toFixed(1)} KB)`
+    });
     return {
       id: data.id || ('a' + Math.random().toString(36).substr(2, 9)),
       name: data.name || file.name,
@@ -255,11 +290,55 @@ export async function generateAIContent(prompt, year, month, category = 'social'
     body: JSON.stringify({ prompt, year, month, category }),
   });
   if (!response.ok) {
-    const errorData = await response.json();
+    const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.error || 'Failed to generate AI content');
   }
   const result = await response.json();
-  return result.items;
+  const items = Array.isArray(result)
+    ? result
+    : (result.items || result.schedule || result.content || result.posts || []);
+
+  if (items.length > 0) {
+    logActivity('AI_GENERATED', 'admin', {
+      details: `Generated ${items.length} content items via AI (${category})`
+    });
+  }
+  return items;
+}
+
+/**
+ * Fetch real-time activity logs
+ * @param {number} limit
+ * @returns {Promise<Array>}
+ */
+export async function fetchActivityLogs(limit = 50) {
+  try {
+    const response = await fetch(`/api/activity-logs?limit=${limit}`);
+    if (!response.ok) return [];
+    const data = await response.json();
+    return data.logs || (Array.isArray(data) ? data : []);
+  } catch (err) {
+    console.warn('Failed to fetch activity logs:', err);
+    return [];
+  }
+}
+
+/**
+ * Log a user or system activity
+ * @param {string} action
+ * @param {string} actor
+ * @param {object} metadata
+ */
+export async function logActivity(action, actor = 'admin', metadata = {}) {
+  try {
+    await fetch('/api/activity-logs', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action, actor, ...metadata }),
+    });
+  } catch (err) {
+    console.warn('Failed to log activity:', err);
+  }
 }
 
 /**
@@ -280,7 +359,10 @@ export async function createBatchContent(items) {
     throw new Error(errorData.error || 'Failed to batch create content');
   }
   const result = await response.json();
-  return result.items;
+  logActivity('BATCH_CREATED', 'admin', {
+    details: `Added ${items.length} items to calendar in batch`
+  });
+  return result.items || items;
 }
 
 /**

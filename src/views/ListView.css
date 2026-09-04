@@ -8,6 +8,7 @@
 .list-view__scroll {
   width: 100%;
   overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
   border-radius: var(--radius-lg);
   border: 1.5px solid var(--color-border);
   background: var(--color-bg-elevated);
@@ -16,15 +17,19 @@
 
 .list-view__table {
   width: 100%;
+  min-width: 1060px;
+  table-layout: fixed;
   border-collapse: collapse;
   text-align: left;
 }
 
 .list-view__th {
-  padding: 12px 12px;
+  padding: 13px 14px;
   font-family: var(--font-heading);
-  font-size: var(--text-xs);
-  font-weight: 600;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
   color: var(--color-text-secondary);
   background: var(--color-bg);
   border-bottom: 1.5px solid var(--color-border);
@@ -32,15 +37,51 @@
   top: 0;
   z-index: 10;
   user-select: none;
+  white-space: nowrap;
 }
 
 .list-view__th--drag {
-  width: 32px;
+  width: 36px;
+  padding: 13px 6px;
 }
 
 .list-view__th--checkbox {
-  width: 32px;
+  width: 38px;
   text-align: center;
+  padding: 13px 8px;
+}
+
+.list-view__th--date {
+  width: 150px;
+  padding: 13px 8px;
+}
+
+.list-view__th--name {
+  min-width: 250px;
+}
+
+.list-view__th--type {
+  width: 155px;
+  padding: 13px 8px;
+}
+
+.list-view__th--summary {
+  width: 75px;
+  text-align: center;
+}
+
+.list-view__th--upload {
+  width: 72px;
+  text-align: center;
+}
+
+.list-view__th--view {
+  width: 68px;
+  text-align: center;
+}
+
+.list-view__th--status {
+  width: 310px;
 }
 
 .list-view__th--center {
@@ -129,3 +170,20 @@
   color: var(--color-text-secondary);
   font-weight: 500;
 }
+
+@media (max-width: 640px) {
+  .list-view__footer-actions {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+  }
+
+  .list-view__add-row,
+  .list-view__delete-bulk {
+    width: 100%;
+    justify-content: center;
+    padding: 10px 16px;
+    font-size: var(--text-xs);
+  }
+}
+

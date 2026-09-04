@@ -1,0 +1,206 @@
+/* ==========================================================================
+   Workflow Pipeline Status Filter Bar
+   Mature, accessible, and responsive stage switcher
+   ========================================================================== */
+
+.status-filter-bar {
+  display: flex;
+  align-items: center;
+  margin-bottom: 24px;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  padding: 4px 0;
+  user-select: none;
+  width: 100%;
+}
+
+.status-filter-bar::-webkit-scrollbar {
+  display: none;
+}
+
+.status-filter-bar__pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--color-bg-elevated, #ffffff);
+  padding: 5px;
+  border-radius: var(--radius-lg, 12px);
+  border: 1.5px solid var(--color-border, #edf0f5);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 1px 2px rgba(0, 0, 0, 0.02);
+}
+
+.status-filter-bar__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 15px;
+  border-radius: var(--radius-md, 8px);
+  font-family: var(--font-body, 'Nunito', sans-serif);
+  font-size: var(--text-xs, 12px);
+  font-weight: 600;
+  color: var(--color-text-secondary, #64748b);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+  outline: none;
+  position: relative;
+}
+
+.status-filter-bar__pill:hover:not(.status-filter-bar__pill--active) {
+  color: var(--color-text, #1e293b);
+  background: var(--color-bg-hover, #f8fafc);
+  transform: translateY(-1px);
+}
+
+.status-filter-bar__pill:focus-visible {
+  box-shadow: 0 0 0 2px var(--color-primary-light, #8b5cf6);
+}
+
+/* Base Active Pill State */
+.status-filter-bar__pill--active {
+  font-weight: 700;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06), 0 1px 2px rgba(0, 0, 0, 0.04);
+  transform: translateY(-1px);
+}
+
+/* Individual Stage Theming when Active */
+/* 1. All Content */
+.status-filter-bar__pill--all.status-filter-bar__pill--active {
+  background: #fbfbfe;
+  color: var(--color-primary, #6b21d8);
+  border-color: #ddd6fe;
+}
+.status-filter-bar__pill--all.status-filter-bar__pill--active .status-filter-bar__count {
+  background: var(--color-primary, #6b21d8);
+  color: #ffffff;
+}
+
+/* 2. Drafts */
+.status-filter-bar__pill--draft.status-filter-bar__pill--active {
+  background: #f8fafc;
+  color: #334155;
+  border-color: #cbd5e1;
+}
+.status-filter-bar__pill--draft.status-filter-bar__pill--active .status-filter-bar__count {
+  background: #64748b;
+  color: #ffffff;
+}
+
+/* 3. In Review */
+.status-filter-bar__pill--pending.status-filter-bar__pill--active {
+  background: #fffbeb;
+  color: #b45309;
+  border-color: #fde68a;
+}
+.status-filter-bar__pill--pending.status-filter-bar__pill--active .status-filter-bar__count {
+  background: #f59e0b;
+  color: #ffffff;
+}
+
+/* 4. Changes Requested */
+.status-filter-bar__pill--revision.status-filter-bar__pill--active {
+  background: #fff1f2;
+  color: #e11d48;
+  border-color: #fecdd3;
+}
+.status-filter-bar__pill--revision.status-filter-bar__pill--active .status-filter-bar__count {
+  background: #f43f5e;
+  color: #ffffff;
+}
+
+/* 5. Approved & Ready */
+.status-filter-bar__pill--ready.status-filter-bar__pill--active {
+  background: #ecfdf5;
+  color: #047857;
+  border-color: #a7f3d0;
+}
+.status-filter-bar__pill--ready.status-filter-bar__pill--active .status-filter-bar__count {
+  background: #10b981;
+  color: #ffffff;
+}
+
+/* 6. Published */
+.status-filter-bar__pill--published.status-filter-bar__pill--active {
+  background: #eff6ff;
+  color: #1d4ed8;
+  border-color: #bfdbfe;
+}
+.status-filter-bar__pill--published.status-filter-bar__pill--active .status-filter-bar__count {
+  background: #3b82f6;
+  color: #ffffff;
+}
+
+/* Status Indicator Dot */
+.status-filter-bar__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.status-filter-bar__pill--active .status-filter-bar__dot {
+  transform: scale(1.15);
+  box-shadow: 0 0 0 2px rgba(255, 255, 255, 0.85);
+}
+
+.status-filter-bar__label {
+  letter-spacing: -0.01em;
+}
+
+/* Pill Count Badge */
+.status-filter-bar__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 9999px;
+  background: #f1f5f9;
+  color: #64748b;
+  font-family: var(--font-body, 'Nunito', sans-serif);
+  font-size: 11px;
+  font-weight: 700;
+  transition: all 0.2s ease;
+}
+
+.status-filter-bar__pill:hover:not(.status-filter-bar__pill--active) .status-filter-bar__count {
+  background: #e2e8f0;
+  color: #334155;
+}
+
+@media (max-width: 640px) {
+  .status-filter-bar {
+    margin-bottom: 16px;
+  }
+
+  .status-filter-bar__pills {
+    gap: 4px;
+    padding: 4px;
+  }
+
+  .status-filter-bar__pill {
+    padding: 6px 11px;
+    font-size: 11px;
+    gap: 6px;
+  }
+
+  .status-filter-bar__dot {
+    width: 6px;
+    height: 6px;
+  }
+
+  .status-filter-bar__count {
+    min-width: 18px;
+    height: 18px;
+    font-size: 10px;
+    padding: 0 4px;
+  }
+}
+
+

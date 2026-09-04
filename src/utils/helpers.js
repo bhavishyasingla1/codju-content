@@ -372,3 +372,26 @@ export function stringToColor(str) {
   }
   return `hsl(${hash % 360}, 65%, 55%)`;
 }
+
+/**
+ * Compute the effective pipeline status of a content item.
+ * For social content, if an item is still marked as 'draft' but assets or text media have been uploaded,
+ * its effective workflow status is 'pending' (In Review for Admin approval).
+ * @param {object} item
+ * @param {boolean} isWritten
+ * @returns {string}
+ */
+export function getEffectiveStatus(item, isWritten = false) {
+  if (!item) return 'draft';
+  const status = item.status || 'draft';
+  if (isWritten) return status;
+
+  const fileCount = (item.assets?.length || 0) + (item.pdfAsset ? 1 : 0);
+  const hasMedia = fileCount > 0 || !!item.thumbnailAsset || (item.type === 'text' && !!item.richText?.trim() && item.richText !== '<p><br></p>');
+
+  if (status === 'draft' && hasMedia) {
+    return 'pending';
+  }
+  return status;
+}
+
