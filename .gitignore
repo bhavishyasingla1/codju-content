@@ -30,3 +30,4 @@ dist-ssr
 
 # Cloudflare Wrangler state
 .wrangler
+.dev-data
