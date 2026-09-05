@@ -287,6 +287,11 @@ function MainApp() {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [canUndo, canRedo, undo, redo]);
 
+  // Ensure page remains at top when month or year changes
+  useEffect(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
+  }, [month, year]);
+
   // Month navigation
   const handlePrevMonth = () => {
     setMonth(prev => {
@@ -298,6 +303,7 @@ function MainApp() {
     });
     setEditingItem(null);
     setRevisionItem(null);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   };
 
   const handleNextMonth = () => {
@@ -310,6 +316,7 @@ function MainApp() {
     });
     setEditingItem(null);
     setRevisionItem(null);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   };
 
   const handleCreateMonth = () => {
@@ -323,6 +330,7 @@ function MainApp() {
     setMonth(nextMonth);
     setEditingItem(null);
     setRevisionItem(null);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   };
 
   const handleDateChange = (newYear, newMonth) => {
@@ -330,6 +338,7 @@ function MainApp() {
     setMonth(newMonth);
     setEditingItem(null);
     setRevisionItem(null);
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   };
 
   // Content CRUD Triggers

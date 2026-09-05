@@ -24,6 +24,7 @@ export default function ListView({
   const dragNode = useRef(null);
   const tableBottomRef = useRef(null);
   const prevContentLengthRef = useRef(content.length);
+  const shouldScrollToBottomRef = useRef(false);
 
   const monthKey = `${year}-${String(month).padStart(2, '0')}`;
 
@@ -44,20 +45,24 @@ export default function ListView({
     return items;
   }, [content, customOrder, monthKey]);
 
-  // Auto scroll smoothly to bottom when a new row is added
+  // Auto scroll smoothly to bottom ONLY when user explicitly adds a new row
   useEffect(() => {
-    if (content.length > prevContentLengthRef.current) {
+    if (shouldScrollToBottomRef.current && content.length > prevContentLengthRef.current) {
       setTimeout(() => {
         tableBottomRef.current?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       }, 50);
+      shouldScrollToBottomRef.current = false;
     }
     prevContentLengthRef.current = content.length;
   }, [content.length]);
 
-  // Reset custom order and selections when switching month/year
+  // Reset custom order and selections, and ensure top scroll when switching month/year
   useEffect(() => {
     setCustomOrder(null);
     setSelectedIds([]);
+    shouldScrollToBottomRef.current = false;
+    prevContentLengthRef.current = content.length;
+    window.scrollTo({ top: 0, left: 0, behavior: 'instant' });
   }, [year, month]);
 
   const handleToggleExpand = (id) => {
@@ -87,6 +92,11 @@ export default function ListView({
     } catch (e) {
       console.error('Failed to bulk delete items:', e);
     }
+  };
+
+  const handleAddRow = () => {
+    shouldScrollToBottomRef.current = true;
+    if (onCreateNew) onCreateNew();
   };
 
   const handleDragStart = (e, index) => {
@@ -200,7 +210,7 @@ export default function ListView({
       <div className="list-view__footer-actions">
         {isAdmin && (
           <>
-            <button className="list-view__add-row" onClick={onCreateNew} type="button">
+            <button className="list-view__add-row" onClick={handleAddRow} type="button">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="12" y1="5" x2="12" y2="19" />
                 <line x1="5" y1="12" x2="19" y2="12" />
