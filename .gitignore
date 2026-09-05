@@ -31,3 +31,4 @@ dist-ssr
 # Cloudflare Wrangler state
 .wrangler
 .dev-data
+worker-configuration.d.ts

@@ -105,6 +105,42 @@ export function viteApiPlugin() {
         const parsedUrl = url.parse(req.url, true);
         const pathname = parsedUrl.pathname;
 
+        // Seamless proxy to live Cloudflare Worker to ensure local dev displays 100% live database data
+        const LIVE_WORKER_URL = process.env.VITE_API_PROXY_URL || 'https://codju-content.bhavishyasingla2005.workers.dev';
+        if (pathname.startsWith('/api/') && LIVE_WORKER_URL) {
+          try {
+            const targetUrl = `${LIVE_WORKER_URL}${req.url}`;
+            const headers = { ...req.headers };
+            delete headers.host;
+            delete headers.connection;
+
+            let body = undefined;
+            if (req.method !== 'GET' && req.method !== 'HEAD') {
+              body = await parseRawBody(req);
+            }
+
+            const liveRes = await fetch(targetUrl, {
+              method: req.method,
+              headers,
+              body,
+              redirect: 'manual'
+            });
+
+            res.statusCode = liveRes.status;
+            for (const [key, value] of liveRes.headers.entries()) {
+              if (key.toLowerCase() !== 'content-encoding') {
+                res.setHeader(key, value);
+              }
+            }
+
+            const buf = Buffer.from(await liveRes.arrayBuffer());
+            res.end(buf);
+            return;
+          } catch (proxyErr) {
+            console.warn('Proxy to live worker failed, falling back to local handlers:', proxyErr.message);
+          }
+        }
+
         // Route: POST /api/generate-ai
         if (pathname === '/api/generate-ai' && req.method === 'POST') {
           try {
