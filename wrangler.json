@@ -1,11 +1,16 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "codju-content-calander",
+  "name": "codju-content",
   "main": "src/worker/index.js",
   "compatibility_date": "2026-09-03",
   "compatibility_flags": [
     "nodejs_compat"
   ],
+  "vars": {
+    "ADMIN_EMAIL": "bhavishyasingla2005@gmail.com",
+    "DESIGNER_EMAIL": "gurpreetcodju@gmail.com",
+    "SENDER_EMAIL": "Bhavishya <noreply@hibhavishya.in>"
+  },
   "assets": {
     "directory": "./dist",
     "binding": "ASSETS",
