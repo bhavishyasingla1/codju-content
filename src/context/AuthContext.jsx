@@ -9,33 +9,27 @@ const AuthContext = createContext(null);
 const STORAGE_KEY = 'codju_auth_role';
 
 export function AuthProvider({ children }) {
-  const [role, setRole] = useState(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved === ROLES.DESIGNER || saved === ROLES.ADMIN || saved === ROLES.VIEWER) {
-        return saved;
-      }
-    } catch {
-      // ignore storage errors
-    }
-    return ROLES.ADMIN; // Default to Admin for full editing, adding, and deleting control
-  });
+  // Always default to VIEWER so Admin view is never exposed without entering the PIN
+  const [role, setRole] = useState(ROLES.VIEWER);
 
-  const [isPinModalOpen, setIsPinModalOpen] = useState(false);
+  // When the link is opened, always ask who is there (Admin or Designer)
+  const [isPinModalOpen, setIsPinModalOpen] = useState(true);
   const [targetAction, setTargetAction] = useState(null);
 
-  // Sync role to localStorage
+  // Clean up any stale admin credentials from localStorage so admin cannot auto-open
   useEffect(() => {
     try {
-      if (role === ROLES.VIEWER) {
-        localStorage.removeItem(STORAGE_KEY);
-      } else {
-        localStorage.setItem(STORAGE_KEY, role);
-      }
+      localStorage.removeItem(STORAGE_KEY);
     } catch {
       // ignore storage errors
     }
-  }, [role]);
+  }, []);
+
+  const selectDesigner = useCallback(() => {
+    setRole(ROLES.DESIGNER);
+    setIsPinModalOpen(false);
+    return { success: true, role: ROLES.DESIGNER };
+  }, []);
 
   const login = useCallback((pin) => {
     const cleanPin = String(pin).trim();
@@ -88,6 +82,7 @@ export function AuthProvider({ children }) {
       canEditMonthNotes: isAdmin,
       canAddRows: isAdmin,
       // Auth actions
+      selectDesigner,
       login,
       logout,
       isPinModalOpen,
@@ -95,7 +90,7 @@ export function AuthProvider({ children }) {
       closePinModal,
       targetAction,
     };
-  }, [role, login, logout, isPinModalOpen, openPinModal, closePinModal, targetAction]);
+  }, [role, selectDesigner, login, logout, isPinModalOpen, openPinModal, closePinModal, targetAction]);
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }

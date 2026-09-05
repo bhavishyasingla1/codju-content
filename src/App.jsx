@@ -630,7 +630,7 @@ function MainApp() {
                 className={`app-category-tab ${activeCategory === 'written' ? 'app-category-tab--active' : ''}`}
                 onClick={() => setActiveCategory('written')}
               >
-                <span>✍️ Written Content (Blogs & Newsletters)</span>
+                <span>✍️ Written Content <span className="app-category-tab__sublabel">(Blogs & Newsletters)</span></span>
                 <span className="app-category-tab__badge">{writtenCount}</span>
               </button>
             </div>
