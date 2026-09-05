@@ -241,37 +241,128 @@ export async function uploadAsset(file) {
 }
 
 /**
- * Download an asset
- * @param {string} url
- * @param {string} filename
+ * Infer extension from mime type
+ * @param {string} mimeType
+ * @returns {string}
  */
-export function downloadAsset(url, filename) {
-  if (!url) return;
-  let tempBlobUrl = null;
-  let targetUrl = url;
+function getExtensionFromMime(mimeType) {
+  if (!mimeType) return '';
+  const cleanMime = mimeType.split(';')[0].trim().toLowerCase();
+  const map = {
+    'image/png': '.png',
+    'image/jpeg': '.jpg',
+    'image/jpg': '.jpg',
+    'image/webp': '.webp',
+    'image/gif': '.gif',
+    'image/svg+xml': '.svg',
+    'application/pdf': '.pdf',
+    'video/mp4': '.mp4',
+    'video/webm': '.webm',
+    'video/quicktime': '.mov',
+  };
+  return map[cleanMime] || '';
+}
 
-  if (typeof url === 'string' && url.startsWith('data:')) {
-    const isPdf = filename?.toLowerCase().endsWith('.pdf') || url.startsWith('data:application/pdf');
-    const blob = dataUrlToBlob(url, isPdf ? 'application/pdf' : null);
-    if (blob) {
-      tempBlobUrl = URL.createObjectURL(blob);
-      targetUrl = tempBlobUrl;
+/**
+ * Ensure filename has a valid extension based on mimeType or fallback
+ * @param {string} filename
+ * @param {string} mimeType
+ * @returns {string}
+ */
+function ensureFilenameExtension(filename, mimeType) {
+  let name = filename || 'download';
+  const hasExt = /\.[a-zA-Z0-9]{2,5}$/.test(name);
+  if (!hasExt && mimeType) {
+    const ext = getExtensionFromMime(mimeType);
+    if (ext) {
+      name += ext;
     }
   }
+  return name;
+}
 
-  const a = document.createElement('a');
-  a.href = targetUrl;
-  a.download = filename || 'download';
-  document.body.appendChild(a);
-  a.click();
-  document.body.removeChild(a);
+/**
+ * Download an asset reliably across all browsers by fetching blob or using native object URL
+ * @param {string} url
+ * @param {string} filename
+ * @returns {Promise<void>}
+ */
+export async function downloadAsset(url, filename) {
+  if (!url) return;
 
-  if (tempBlobUrl) {
-    setTimeout(() => {
-      URL.revokeObjectURL(tempBlobUrl);
-    }, 10000);
+  let blob = null;
+  let targetMime = null;
+  let tempBlobUrl = null;
+
+  try {
+    if (typeof url === 'string' && url.startsWith('blob:')) {
+      const safeName = ensureFilenameExtension(filename, null);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = safeName;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      return;
+    }
+
+    if (typeof url === 'string' && url.startsWith('data:')) {
+      const isPdf = filename?.toLowerCase().endsWith('.pdf') || url.startsWith('data:application/pdf');
+      blob = dataUrlToBlob(url, isPdf ? 'application/pdf' : null);
+      if (blob) {
+        targetMime = blob.type;
+      }
+    } else {
+      let fetchUrl = url;
+      if (url.startsWith('/api/assets/')) {
+        const separator = url.includes('?') ? '&' : '?';
+        fetchUrl = `${url}${separator}download=1&filename=${encodeURIComponent(filename || 'download')}`;
+      }
+
+      const response = await fetch(fetchUrl);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch file: ${response.status} ${response.statusText}`);
+      }
+      blob = await response.blob();
+      targetMime = response.headers.get('content-type') || blob.type;
+    }
+
+    if (blob) {
+      tempBlobUrl = URL.createObjectURL(blob);
+      const safeFilename = ensureFilenameExtension(filename, targetMime);
+
+      const a = document.createElement('a');
+      a.href = tempBlobUrl;
+      a.download = safeFilename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+
+      setTimeout(() => {
+        URL.revokeObjectURL(tempBlobUrl);
+      }, 60000);
+      return;
+    }
+  } catch (err) {
+    console.warn('Blob download encountered an issue, falling back to direct anchor:', err);
+  }
+
+  // Fallback to direct anchor download
+  try {
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename || 'download';
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+  } catch (err) {
+    console.error('Direct download failed:', err);
+    window.open(url, '_blank');
   }
 }
+
 
 /**
  * Generate content using Gemini AI

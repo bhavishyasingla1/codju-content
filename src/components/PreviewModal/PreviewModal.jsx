@@ -22,6 +22,7 @@ export default function PreviewModal({
     return 0;
   });
   const [copied, setCopied] = useState(false);
+  const [downloading, setDownloading] = useState(false);
 
   // Swipe & Touch gesture handling
   const touchStartX = useRef(null);
@@ -61,7 +62,10 @@ export default function PreviewModal({
   }, [handleKeyDown]);
 
   const handleBackdropClick = (e) => {
-    if (e.target === e.currentTarget) onClose();
+    if (e.target === e.currentTarget) {
+      e.stopPropagation();
+      onClose();
+    }
   };
 
   const handleTouchStart = (e) => {
@@ -101,17 +105,23 @@ export default function PreviewModal({
     }
   };
 
-  const handleDownload = () => {
-    if (currentAsset?.url) {
-      const ext = isPdfFile(currentAsset) ? '.pdf' : '';
+  const handleDownload = async () => {
+    if (!currentAsset?.url || downloading) return;
+    setDownloading(true);
+    try {
+      const ext = isPdfFile(currentAsset) ? '.pdf' : isImageFile(currentAsset) ? '.png' : '';
       const fallbackName = `asset_${currentIndex + 1}${ext}`;
-      downloadAsset(currentAsset.url, currentAsset.name || fallbackName);
+      await downloadAsset(currentAsset.url, currentAsset.name || fallbackName);
+    } catch (err) {
+      console.error('Download error:', err);
+    } finally {
+      setDownloading(false);
     }
   };
 
   const handleOpenNewTab = () => {
     if (!currentAsset?.url) return;
-    if (currentAsset.url.startsWith('http') || currentAsset.url.startsWith('blob:')) {
+    if (currentAsset.url.startsWith('http') || currentAsset.url.startsWith('blob:') || currentAsset.url.startsWith('/api/')) {
       window.open(currentAsset.url, '_blank', 'noopener,noreferrer');
       return;
     }
@@ -125,7 +135,7 @@ export default function PreviewModal({
         return;
       }
     }
-    window.open(currentAsset.url, '_blank');
+    window.open(currentAsset.url, '_blank', 'noopener,noreferrer');
   };
 
   const renderMedia = () => {
@@ -251,12 +261,12 @@ export default function PreviewModal({
               </button>
             )}
 
-            {/* Open in New Tab for PDF */}
-            {isPdf && currentAsset?.url && (
+            {/* Open in New Tab for All Media */}
+            {currentAsset?.url && (
               <button
                 onClick={handleOpenNewTab}
                 className="preview-modal__action-btn"
-                title="Open PDF in a new tab"
+                title={isPdf ? 'Open PDF in a new tab' : 'Open full-size media in a new tab'}
                 type="button"
               >
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -273,19 +283,37 @@ export default function PreviewModal({
               <button
                 className="preview-modal__action-btn preview-modal__action-btn--primary"
                 onClick={handleDownload}
+                disabled={downloading}
                 title={isPdf ? 'Download PDF Document' : 'Download HD Image'}
                 type="button"
               >
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                  <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
-                  <polyline points="7 10 12 15 17 10" />
-                  <line x1="12" y1="15" x2="12" y2="3" />
-                </svg>
-                <span>{isPdf ? 'Download PDF' : 'Download HD'}</span>
+                {downloading ? (
+                  <>
+                    <span className="preview-modal__spinner" />
+                    <span>Downloading...</span>
+                  </>
+                ) : (
+                  <>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" />
+                      <polyline points="7 10 12 15 17 10" />
+                      <line x1="12" y1="15" x2="12" y2="3" />
+                    </svg>
+                    <span>{isPdf ? 'Download PDF' : 'Download HD'}</span>
+                  </>
+                )}
               </button>
             )}
 
-            <button className="preview-modal__close" onClick={onClose} type="button" aria-label="Close">
+            <button
+              className="preview-modal__close"
+              onClick={(e) => {
+                e.stopPropagation();
+                onClose();
+              }}
+              type="button"
+              aria-label="Close"
+            >
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />

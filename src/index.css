@@ -112,7 +112,8 @@
   --z-sticky: 200;
   --z-modal-backdrop: 900;
   --z-modal: 1000;
-  --z-toast: 1100;
+  --z-preview: 1200;
+  --z-toast: 1300;
 }
 
 /* --- Reset & Base --- */

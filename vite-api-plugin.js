@@ -193,8 +193,8 @@ export function viteApiPlugin() {
           return;
         }
 
-        // Route: GET /api/assets/:key
-        if (pathname.startsWith('/api/assets/') && req.method === 'GET') {
+        // Route: GET or HEAD /api/assets/:key
+        if (pathname.startsWith('/api/assets/') && (req.method === 'GET' || req.method === 'HEAD')) {
           const key = decodeURIComponent(pathname.substring('/api/assets/'.length));
           if (!key) {
             res.statusCode = 400;
@@ -208,8 +208,22 @@ export function viteApiPlugin() {
               res.end('Asset not found');
               return;
             }
-            res.setHeader('Content-Type', asset.contentType);
+            const isDownload = parsedUrl.query.download === '1' || parsedUrl.query.download === 'true';
+            const filename = parsedUrl.query.filename ? decodeURIComponent(parsedUrl.query.filename) : key;
+            const disposition = isDownload ? 'attachment' : 'inline';
+
+            res.setHeader('Content-Type', asset.contentType || 'application/octet-stream');
+            res.setHeader('Content-Length', asset.buffer.length);
             res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+            res.setHeader('Accept-Ranges', 'bytes');
+            res.setHeader('Content-Disposition', `${disposition}; filename="${filename.replace(/"/g, '_')}"`);
+
+            if (req.method === 'HEAD') {
+              res.statusCode = 200;
+              res.end();
+              return;
+            }
+
             res.end(asset.buffer);
           } catch (err) {
             console.error('Error fetching asset from R2 in dev:', err);

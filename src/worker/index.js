@@ -399,6 +399,12 @@ export default {
           object.writeHttpMetadata(headers);
           headers.set('etag', object.httpEtag);
           headers.set('cache-control', 'public, max-age=31536000, immutable');
+          headers.set('accept-ranges', 'bytes');
+
+          const isDownload = url.searchParams.get('download') === '1' || url.searchParams.get('download') === 'true';
+          const filename = url.searchParams.get('filename') ? decodeURIComponent(url.searchParams.get('filename')) : key;
+          const disposition = isDownload ? 'attachment' : 'inline';
+          headers.set('content-disposition', `${disposition}; filename="${filename.replace(/"/g, '_')}"`);
 
           return new Response(method === 'HEAD' ? null : object.body, { headers });
         }
