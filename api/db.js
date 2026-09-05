@@ -7,7 +7,7 @@ const CF_ACCOUNT_ID = process.env.CLOUDFLARE_ACCOUNT_ID || '2df51fcfaedf96d9b763
 const CF_EMAIL = process.env.CLOUDFLARE_EMAIL || 'bhavishyasingla2005@gmail.com';
 const CF_API_KEY = process.env.CLOUDFLARE_API_KEY || '';
 const D1_DATABASE_ID = process.env.CLOUDFLARE_D1_DATABASE_ID || '9d2fba12-d01f-4260-867f-c384937fad63';
-const R2_BUCKET_NAME = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'codju-content-assets';
+const _R2_BUCKET_NAME = process.env.CLOUDFLARE_R2_BUCKET_NAME || 'codju-content-assets';
 
 export async function queryD1(sql, params = []) {
   const url = `https://api.cloudflare.com/client/v4/accounts/${CF_ACCOUNT_ID}/d1/database/${D1_DATABASE_ID}/query`;
