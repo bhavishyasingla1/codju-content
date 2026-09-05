@@ -1,6 +1,6 @@
 import pg from 'pg';
 
-const connectionString = 'postgresql://postgres.nbehjvipntthyttxgutt:Codjucontentcalander%40123%24@aws-0-ap-northeast-1.pooler.supabase.com:5432/postgres';
+const connectionString = process.env.DATABASE_URL || '';
 
 const client = new pg.Client({
   connectionString,
