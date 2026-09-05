@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import StatusBadge from '../StatusBadge/StatusBadge';
 import { CONTENT_TYPES } from '../../data/mockContent';
 import { useAuth } from '../../context/AuthContext';
@@ -30,17 +30,87 @@ export default function ContentRow({
   const isWritten = (item.category || 'social') === 'written';
   const canEdit = isWritten ? isAdmin : !isViewer;
 
+  const debounceTimerRef = useRef(null);
+  const pendingChangesRef = useRef({});
+  const isFocusedRef = useRef({ name: false, summary: false });
+  const itemIdRef = useRef(item.id);
+  itemIdRef.current = item.id;
+
+  // Flush any pending text field updates to parent
+  const flushPendingChanges = useCallback(() => {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    const changes = { ...pendingChangesRef.current };
+    if (Object.keys(changes).length > 0) {
+      pendingChangesRef.current = {};
+      onUpdate(itemIdRef.current, changes);
+    }
+  }, [onUpdate]);
+
+  // Flush on unmount if any pending changes exist
   useEffect(() => {
-    setLocalItem(item);
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+      const changes = { ...pendingChangesRef.current };
+      if (Object.keys(changes).length > 0) {
+        pendingChangesRef.current = {};
+        onUpdate(itemIdRef.current, changes);
+      }
+    };
+  }, [onUpdate]);
+
+  // Sync incoming item props, but preserve actively edited fields to prevent glitching/overwriting
+  useEffect(() => {
+    setLocalItem(prev => {
+      const hasPendingName = isFocusedRef.current.name || ('name' in pendingChangesRef.current);
+      const hasPendingSummary = isFocusedRef.current.summary || ('summary' in pendingChangesRef.current);
+
+      return {
+        ...item,
+        name: hasPendingName ? prev.name : (item.name || ''),
+        summary: hasPendingSummary ? prev.summary : (item.summary || ''),
+      };
+    });
   }, [item]);
 
-  const handleInputChange = (field, value) => {
+  // Continuous text input handler with smooth local typing and debounced persistence
+  const handleTextInputChange = (field, value) => {
     if (!canEdit) {
       openPinModal();
       return;
     }
-    const updated = { ...localItem, [field]: value };
-    setLocalItem(updated);
+    setLocalItem(prev => ({ ...prev, [field]: value }));
+    pendingChangesRef.current[field] = value;
+
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+    debounceTimerRef.current = setTimeout(() => {
+      flushPendingChanges();
+    }, 600);
+  };
+
+  const handleInputFocus = (field) => {
+    isFocusedRef.current[field] = true;
+  };
+
+  const handleInputBlur = (field) => {
+    isFocusedRef.current[field] = false;
+    flushPendingChanges();
+  };
+
+  // Immediate handler for discrete inputs (date picker, type selector)
+  const handleDiscreteChange = (field, value) => {
+    if (!canEdit) {
+      openPinModal();
+      return;
+    }
+    flushPendingChanges();
+    setLocalItem(prev => ({ ...prev, [field]: value }));
     onUpdate(item.id, { [field]: value });
   };
 
@@ -217,7 +287,7 @@ export default function ContentRow({
               type="date"
               className="content-row__input content-row__input--date"
               value={localItem.date || ''}
-              onChange={(e) => handleInputChange('date', e.target.value)}
+              onChange={(e) => handleDiscreteChange('date', e.target.value)}
             />
           ) : (
             <span className="content-row__text content-row__text--date">{localItem.date || '—'}</span>
@@ -231,7 +301,9 @@ export default function ContentRow({
               type="text"
               className="content-row__input content-row__input--name"
               value={localItem.name || ''}
-              onChange={(e) => handleInputChange('name', e.target.value)}
+              onChange={(e) => handleTextInputChange('name', e.target.value)}
+              onFocus={() => handleInputFocus('name')}
+              onBlur={() => handleInputBlur('name')}
               placeholder="Content name..."
             />
           ) : (
@@ -247,7 +319,7 @@ export default function ContentRow({
             <select
               className="content-row__select"
               value={localItem.type}
-              onChange={(e) => handleInputChange('type', e.target.value)}
+              onChange={(e) => handleDiscreteChange('type', e.target.value)}
             >
               {CONTENT_TYPES.map(t => (
                 <option key={t.value} value={t.value}>{t.label}</option>
@@ -533,10 +605,11 @@ export default function ContentRow({
                     <textarea
                       className="content-row__summary-textarea"
                       value={localItem.summary || ''}
-                      onChange={(e) => handleInputChange('summary', e.target.value)}
+                      onChange={(e) => handleTextInputChange('summary', e.target.value)}
+                      onFocus={() => handleInputFocus('summary')}
+                      onBlur={() => handleInputBlur('summary')}
                       placeholder="Write the creative brief, visual instructions, copy notes, or summary for this post..."
                       rows={4}
-                      autoFocus
                     />
                     <div className="content-row__summary-footer-meta">
                       <span className="content-row__summary-meta-hint">

@@ -1052,10 +1052,12 @@ function MainApp() {
 
       {/* Editing Dialog Modal (Grid & Calendar views only) */}
       {editingItem && (
-        <div className="app-modal-backdrop" onClick={(e) => e.target === e.currentTarget && setEditingItem(null)}>
+        <div className="app-modal-backdrop" onClick={(e) => e.target === e.currentTarget && handleCloseEditor(editingItem)}>
           <div className="app-modal animate-scale-in">
             <ContentEditor
+              key={editingItem.id}
               item={editingItem}
+              showSummary={true}
               onUpdate={handleUpdateItem}
               onDelete={handleDeleteItem}
               onPreview={handleOpenPreview}

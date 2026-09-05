@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useEffect } from 'react';
 import { CONTENT_TYPES } from '../../data/mockContent';
 import UploadZone from '../UploadZone/UploadZone';
 import RichTextEditor from '../RichTextEditor/RichTextEditor';
@@ -9,9 +9,14 @@ import { uploadAsset } from '../../services/contentService';
 import { useAuth } from '../../context/AuthContext';
 import './ContentEditor.css';
 
-export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onClose, onOpenRevision, onSendForApproval, showSummary = false }) {
+export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onClose, onOpenRevision, onSendForApproval, showSummary = true }) {
   const { isViewer, isDesigner, isAdmin, openPinModal } = useAuth();
   const [formData, setFormData] = useState({ ...item });
+
+  useEffect(() => {
+    setFormData({ ...item });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [item.id]);
 
   const isWritten = (formData.category || item.category) === 'written';
   const canEdit = isWritten ? isAdmin : !isViewer;
@@ -21,7 +26,18 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
     await onUpdate(item.id, formData);
   }, [item.id, formData, onUpdate, canEdit]);
 
-  const { saveStatus, triggerSave, forceSave } = useAutoSave(saveFunction, 3000);
+  const { saveStatus, triggerSave, forceSave } = useAutoSave(saveFunction, 1000);
+
+  const handleSafeClose = async () => {
+    if (canEdit) {
+      try {
+        await forceSave();
+      } catch (e) {
+        console.warn('Auto-save on close error:', e);
+      }
+    }
+    onClose?.();
+  };
 
   const handleChange = (field, value) => {
     if (!canEdit) {
@@ -378,7 +394,7 @@ export default function ContentEditor({ item, onUpdate, onDelete, onPreview, onC
             </button>
           )}
           {onClose && (
-            <button className="editor__close-btn" onClick={onClose} title="Close / Collapse" type="button">
+            <button className="editor__close-btn" onClick={handleSafeClose} title="Close / Collapse" type="button">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
                 <line x1="18" y1="6" x2="6" y2="18" />
                 <line x1="6" y1="6" x2="18" y2="18" />

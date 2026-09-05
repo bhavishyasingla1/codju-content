@@ -47,6 +47,7 @@ export function useContent(year, month) {
   // Keep live references for sync comparisons
   const contentRef = useRef(content);
   contentRef.current = content;
+  const updateSeqRef = useRef({});
 
   const latestTsRef = useRef(() => {
     try {
@@ -571,21 +572,32 @@ export function useContent(year, month) {
         });
       }
 
+      const seq = (updateSeqRef.current[id] || 0) + 1;
+      updateSeqRef.current[id] = seq;
+
       // Optimistically update local state immediately
       setContent(prev => {
-        const updated = prev.map(item => item.id === id ? { ...item, ...updates } : item)
-          .sort((a, b) => new Date(a.date) - new Date(b.date));
+        const updated = prev.map(item => item.id === id ? { ...item, ...updates } : item);
+        if (updates.date) {
+          updated.sort((a, b) => new Date(a.date) - new Date(b.date));
+        }
         persistCache(updated);
         return updated;
       });
 
       const updated = await contentService.updateContent(id, updates);
-      setContent(prev => {
-        const final = prev.map(item => item.id === id ? updated : item)
-          .sort((a, b) => new Date(a.date) - new Date(b.date));
-        persistCache(final, updated.updatedAt || new Date().toISOString());
-        return final;
-      });
+
+      // Only apply server response if no newer update request was launched
+      if (updateSeqRef.current[id] === seq) {
+        setContent(prev => {
+          const final = prev.map(item => item.id === id ? { ...item, ...updated } : item);
+          if (updated.date) {
+            final.sort((a, b) => new Date(a.date) - new Date(b.date));
+          }
+          persistCache(final, updated.updatedAt || new Date().toISOString());
+          return final;
+        });
+      }
       return updated;
     } catch (err) {
       setError(err.message);
